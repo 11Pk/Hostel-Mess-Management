@@ -1,16 +1,49 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { QRCodeCanvas } from 'qrcode.react';
+import { Html5QrcodeScanner } from 'html5-qrcode';
 import { useAuth } from '../../context/AuthContext';
-import { adminAPI, attendanceAPI, crowdAPI, feedbackAPI, inventoryAPI, menuAPI, paymentAPI } from '../../services/api';
+import { 
+  adminAPI, 
+  attendanceAPI, 
+  crowdAPI, 
+  feedbackAPI, 
+  inventoryAPI, 
+  menuAPI, 
+  paymentAPI 
+} from '../../services/api';
 
-const studentTabs = ['Dashboard', 'QR Attendance', 'Weekly Menu', 'Food Preference', 'Fees / Payments', 'Feedback'];
-const adminTabs = ['Dashboard', 'Attendance Management', 'Payments', 'Crowd Management', 'Menu Management', 'Inventory', 'Feedback Management'];
+const studentTabs = [
+  'Dashboard', 
+  'QR Attendance', 
+  'Weekly Menu', 
+  'Food Preference', 
+  'Purchase & Extras', 
+  'Fees / Payments', 
+  'Feedback'
+];
+
+const adminTabs = [
+  'Dashboard', 
+  'Attendance Management', 
+  'Daily Items Manager',
+  'QR Scanner Billing',
+  'Payments', 
+  'Crowd Management', 
+  'Menu Management', 
+  'Inventory', 
+  'Feedback Management'
+];
 
 const dayLabels = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
 
 function Card({ title, value }) {
-  return <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm"><p className="text-sm text-slate-500">{title}</p><p className="mt-1 text-2xl font-semibold">{value}</p></div>;
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+      <p className="text-sm text-slate-500">{title}</p>
+      <p className="mt-1 text-2xl font-semibold text-slate-800">{value}</p>
+    </div>
+  );
 }
 
 function Dashboard() {
@@ -19,6 +52,8 @@ function Dashboard() {
   const [activeTab, setActiveTab] = useState('Dashboard');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  
+  // Existing states
   const [attendance, setAttendance] = useState(null);
   const [qrData, setQrData] = useState(null);
   const [menu, setMenu] = useState(null);
@@ -36,6 +71,15 @@ function Dashboard() {
   const [showQrModal, setShowQrModal] = useState(false);
   const [showPrefModal, setShowPrefModal] = useState(false);
 
+  // New billing & dynamic daily items states
+  const [dailyItems, setDailyItems] = useState([]);
+  const [selectedDailyItems, setSelectedDailyItems] = useState({});
+  const [studentTransactions, setStudentTransactions] = useState([]);
+  const [scanPayloadInput, setScanPayloadInput] = useState('');
+  const [isScanning, setIsScanning] = useState(false);
+  const [scannedTransactionData, setScannedTransactionData] = useState(null);
+  const [showBillingQrModal, setShowBillingQrModal] = useState(false);
+
   const tabs = useMemo(() => (user?.role === 'admin' ? adminTabs : studentTabs), [user?.role]);
 
   const safeCall = async (fn) => {
@@ -51,37 +95,46 @@ function Dashboard() {
   };
 
   const loadCommon = async () => {
-    const [crowdRes, menuRes] = await Promise.all([crowdAPI.get(token), menuAPI.getWeekly(token)]);
+    const [crowdRes, menuRes, dailyRes] = await Promise.all([
+      crowdAPI.get(token), 
+      menuAPI.getWeekly(token),
+      menuAPI.getDailyItems(token)
+    ]);
     setCrowd(crowdRes.crowd.level);
     setMenu(menuRes.menu);
+    setDailyItems(dailyRes.items || []);
   };
 
   const loadStudent = async () => {
-    const [attendanceRes, paymentRes, feedbackRes, formRes] = await Promise.all([
+    const [attendanceRes, paymentRes, feedbackRes, formRes, transRes] = await Promise.all([
       attendanceAPI.getMine(token),
       paymentAPI.getMine(token),
       feedbackAPI.mine(token),
       menuAPI.getForm(token),
+      paymentAPI.getTransactions(token)
     ]);
     setAttendance(attendanceRes);
     setPayment(paymentRes.payment);
     setFeedback(feedbackRes.feedback);
     setPrefForm(formRes.form);
+    setStudentTransactions(transRes.transactions || []);
   };
 
   const loadAdmin = async () => {
-    const [overviewRes, paymentRes, feedRes, invRes, suggRes] = await Promise.all([
+    const [overviewRes, paymentRes, feedRes, invRes, suggRes, dailyRes] = await Promise.all([
       adminAPI.overview(token),
       paymentAPI.list(token),
       feedbackAPI.list(token),
       inventoryAPI.list(token),
       menuAPI.suggestions(token),
+      menuAPI.getDailyItems(token)
     ]);
     setAdminOverview(overviewRes.overview);
     setPaymentList(paymentRes.payments);
     setFeedback(feedRes.feedback);
     setInventory(invRes.items);
     setSuggestions(suggRes.suggestions);
+    setDailyItems(dailyRes.items || []);
   };
 
   useEffect(() => {
@@ -92,6 +145,45 @@ function Dashboard() {
       else await loadStudent();
     });
   }, [token, user?.role]);
+
+  // Live Camera Scanner Setup
+  useEffect(() => {
+    let html5QrcodeScanner;
+    if (activeTab === 'QR Scanner Billing' && isScanning) {
+      html5QrcodeScanner = new Html5QrcodeScanner(
+        "qr-reader",
+        { fps: 10, qrbox: { width: 250, height: 250 } },
+        /* verbose= */ false
+      );
+
+      const onScanSuccess = (decodedText) => {
+        try {
+          const data = JSON.parse(decodedText);
+          if (data.type === "mess-billing") {
+            setScannedTransactionData(data);
+            setIsScanning(false);
+            html5QrcodeScanner.clear();
+          } else {
+            alert("Invalid QR Code category. Must be a purchase invoice.");
+          }
+        } catch (err) {
+          alert("Unable to parse QR payload. Format must be JSON.");
+        }
+      };
+
+      const onScanFailure = () => {
+        // Quiet failure to keep continuous listening
+      };
+
+      html5QrcodeScanner.render(onScanSuccess, onScanFailure);
+    }
+
+    return () => {
+      if (html5QrcodeScanner) {
+        html5QrcodeScanner.clear().catch(err => console.error("Error clearing scanner", err));
+      }
+    };
+  }, [activeTab, isScanning]);
 
   const handleLogout = () => {
     logout();
@@ -186,155 +278,982 @@ function Dashboard() {
     });
   };
 
+  // Staff Daily Item Handlers
+  const handleAddDailyItem = (event) => {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const name = form.get('name');
+    const price = Number(form.get('price'));
+    const category = form.get('category');
+    
+    safeCall(async () => {
+      await menuAPI.addDailyItem(token, { name, price, category });
+      const updated = await menuAPI.getDailyItems(token);
+      setDailyItems(updated.items || []);
+      event.target.reset();
+    });
+  };
+
+  const handleToggleDailyItem = (id) => safeCall(async () => {
+    await menuAPI.toggleDailyItem(token, id);
+    const updated = await menuAPI.getDailyItems(token);
+    setDailyItems(updated.items || []);
+  });
+
+  const handleDeleteDailyItem = (id) => safeCall(async () => {
+    await menuAPI.deleteDailyItem(token, id);
+    const updated = await menuAPI.getDailyItems(token);
+    setDailyItems(updated.items || []);
+  });
+
+  // Student Daily Item Selection Handlers
+  const handleSelectDailyItem = (id) => {
+    setSelectedDailyItems(prev => ({
+      ...prev,
+      [id]: !prev[id]
+    }));
+  };
+
+  const purchaseQrPayload = useMemo(() => {
+    const chosen = dailyItems.filter(item => selectedDailyItems[item._id] && item.isAvailable);
+    if (chosen.length === 0) return null;
+    const total = chosen.reduce((acc, curr) => acc + curr.price, 0);
+    return {
+      type: "mess-billing",
+      studentId: user?.id || user?._id,
+      username: user?.username,
+      items: chosen.map(item => ({
+        itemId: item._id,
+        name: item.name,
+        price: item.price
+      })),
+      totalAmount: total,
+      date: new Date().toISOString().slice(0, 10)
+    };
+  }, [dailyItems, selectedDailyItems, user]);
+
+  const handleConfirmTransaction = () => {
+    if (!scannedTransactionData) return;
+    safeCall(async () => {
+      const res = await paymentAPI.processScan(token, {
+        studentId: scannedTransactionData.studentId,
+        items: scannedTransactionData.items,
+        totalAmount: scannedTransactionData.totalAmount
+      });
+      alert(res.message || "Transaction approved!");
+      setScannedTransactionData(null);
+      setScanPayloadInput('');
+      
+      // Reload admin reports/payments state
+      const overviewRes = await adminAPI.overview(token);
+      setAdminOverview(overviewRes.overview);
+      const paymentsRes = await paymentAPI.list(token);
+      setPaymentList(paymentsRes.payments);
+    });
+  };
+
   return (
-    <div className="min-h-screen bg-slate-100">
+    <div className="min-h-screen bg-slate-50 font-sans">
       <div className="flex">
-        <aside className="min-h-screen w-64 bg-slate-900 p-4 text-white">
-          <h2 className="mb-1 text-xl font-bold">Mess Management</h2>
-          <p className="mb-4 text-sm text-slate-300">{user?.username} ({user?.role})</p>
-          <div className="space-y-2">
-            {tabs.map((tab) => (
-              <button key={tab} onClick={() => setActiveTab(tab)} className={`w-full rounded px-3 py-2 text-left text-sm ${activeTab === tab ? 'bg-blue-600' : 'bg-slate-800 hover:bg-slate-700'}`}>{tab}</button>
-            ))}
+        {/* Sidebar Nav */}
+        <aside className="min-h-screen w-64 bg-slate-900 p-4 text-white shadow-xl flex flex-col justify-between">
+          <div>
+            <div className="flex items-center gap-2 mb-6">
+              <span className="text-2xl font-bold tracking-wider text-blue-500">HMMS</span>
+              <span className="bg-blue-600/20 text-blue-400 border border-blue-500/20 px-2 py-0.5 rounded text-[10px] uppercase font-bold tracking-widest">Portal</span>
+            </div>
+            
+            <div className="mb-6 rounded-lg bg-slate-800/40 border border-slate-700/50 p-3">
+              <p className="text-xs text-slate-400 font-medium">Logged in as</p>
+              <h3 className="text-sm font-semibold mt-0.5 text-white truncate">{user?.username}</h3>
+              <span className="inline-block mt-1 bg-slate-700 text-slate-300 font-semibold px-2 py-0.5 rounded-full text-[10px] uppercase tracking-wider">
+                {user?.role}
+              </span>
+            </div>
+
+            <div className="space-y-1">
+              {tabs.map((tab) => (
+                <button 
+                  key={tab} 
+                  onClick={() => {
+                    setActiveTab(tab);
+                    // Refresh data on tab navigation
+                    if (token) {
+                      if (user?.role === 'admin') loadAdmin();
+                      else loadStudent();
+                    }
+                  }} 
+                  className={`w-full rounded-lg px-3 py-2.5 text-left text-sm font-medium transition duration-150 flex items-center gap-3 ${activeTab === tab ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+                >
+                  {tab}
+                </button>
+              ))}
+            </div>
           </div>
-          <button onClick={handleLogout} className="mt-6 w-full rounded bg-red-600 px-3 py-2 text-sm">Logout</button>
+          
+          <button 
+            onClick={handleLogout} 
+            className="w-full rounded-lg bg-slate-800 hover:bg-red-700 hover:text-white px-3 py-2.5 text-sm font-medium transition duration-150 flex items-center justify-center gap-2"
+          >
+            Logout
+          </button>
         </aside>
 
-        <main className="flex-1 p-6">
-          {error && <div className="mb-4 rounded bg-red-50 p-3 text-red-700">{error}</div>}
-          {loading && <div className="mb-4 rounded bg-blue-50 p-3 text-blue-700">Loading...</div>}
+        {/* Main Panel */}
+        <main className="flex-1 p-8 max-w-7xl mx-auto w-full">
+          {error && (
+            <div className="mb-6 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700 flex items-center gap-2 shadow-sm animate-pulse">
+              <span>⚠️ Error:</span> {error}
+            </div>
+          )}
+          {loading && (
+            <div className="mb-6 rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-blue-700 flex items-center gap-2 shadow-sm">
+              <div className="h-4 w-4 animate-spin rounded-full border-2 border-blue-700 border-t-transparent"></div>
+              <span>Processing... Please wait</span>
+            </div>
+          )}
 
+          {/* STUDENT DASHBOARD TAB */}
           {activeTab === 'Dashboard' && user?.role === 'student' && (
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-              <Card title="Today's attendance" value={attendance?.statusToday || 'absent'} />
-              <Card title="Payment status" value={payment?.status || 'pending'} />
-              <Card title="Crowd level" value={crowd} />
-              <Card title="Recent announcement" value="Dinner timing shifted to 8:30 PM" />
-              <Card title="Weekly menu preview" value={menu?.days?.monday?.lunch || 'No menu set'} />
-            </div>
-          )}
-
-          {activeTab === 'QR Attendance' && user?.role === 'student' && (
-            <div className="space-y-4">
-              <button className="rounded bg-blue-600 px-4 py-2 text-white" onClick={handleOpenQr}>Show QR</button>
-              <div className="grid gap-4 md:grid-cols-2">
-                <Card title="Total present days" value={attendance?.stats?.totalPresentDays || 0} />
-                <Card title="Monthly attendance %" value={`${attendance?.stats?.monthlyAttendancePercent || 0}%`} />
-              </div>
-              <table className="w-full overflow-hidden rounded-lg bg-white text-sm shadow-sm"><thead><tr className="bg-slate-100"><th className="p-2 text-left">Date</th><th className="p-2 text-left">Status</th><th className="p-2 text-left">Source</th></tr></thead><tbody>{attendance?.history?.map((h) => <tr key={h._id} className="border-t"><td className="p-2">{h.date}</td><td className="p-2">{h.status}</td><td className="p-2">{h.source}</td></tr>)}</tbody></table>
-            </div>
-          )}
-
-          {activeTab === 'Weekly Menu' && (
-            <table className="w-full overflow-hidden rounded-lg bg-white text-sm shadow-sm">
-              <thead><tr className="bg-slate-100"><th className="p-2 text-left">Day</th><th className="p-2 text-left">Breakfast</th><th className="p-2 text-left">Lunch</th><th className="p-2 text-left">Dinner</th></tr></thead>
-              <tbody>{dayLabels.map((day) => <tr key={day} className="border-t"><td className="p-2 capitalize">{day}</td><td className="p-2">{menu?.days?.[day]?.breakfast || '-'}</td><td className="p-2">{menu?.days?.[day]?.lunch || '-'}</td><td className="p-2">{menu?.days?.[day]?.dinner || '-'}</td></tr>)}</tbody>
-            </table>
-          )}
-
-          {activeTab === 'Food Preference' && user?.role === 'student' && (
-            <button className="rounded bg-blue-600 px-4 py-2 text-white" onClick={() => setShowPrefModal(true)}>Fill Preference Form</button>
-          )}
-
-          {activeTab === 'Fees / Payments' && user?.role === 'student' && (
-            <div className="space-y-4">
-              <div className="grid gap-4 md:grid-cols-3">
-                <Card title="Total fees" value={payment?.totalFees || 0} />
-                <Card title="Paid amount" value={payment?.paidAmount || 0} />
-                <Card title="Status" value={payment?.status || 'pending'} />
-              </div>
-              <button className="rounded bg-emerald-600 px-4 py-2 text-white" onClick={handlePayNow}>Pay Now (Simulate)</button>
-            </div>
-          )}
-
-          {activeTab === 'Feedback' && user?.role === 'student' && (
-            <div className="space-y-4">
-              <form className="rounded-lg bg-white p-4 shadow-sm" onSubmit={submitFeedback}>
-                <input className="mb-2 w-full rounded border p-2" name="title" placeholder="Feedback title" required />
-                <textarea className="mb-2 w-full rounded border p-2" name="message" placeholder="Write your complaint or feedback" required />
-                <button className="rounded bg-blue-600 px-4 py-2 text-white">Submit</button>
-              </form>
-              <table className="w-full overflow-hidden rounded-lg bg-white text-sm shadow-sm"><thead><tr className="bg-slate-100"><th className="p-2 text-left">Title</th><th className="p-2 text-left">Status</th><th className="p-2 text-left">Response</th></tr></thead><tbody>{feedback.map((f) => <tr key={f._id} className="border-t"><td className="p-2">{f.title}</td><td className="p-2">{f.status}</td><td className="p-2">{f.adminResponse || '-'}</td></tr>)}</tbody></table>
-            </div>
-          )}
-
-          {activeTab === 'Attendance Management' && user?.role === 'admin' && (
-            <div className="space-y-4">
-              <div className="flex gap-2"><input type="date" value={attendanceDate} onChange={(e) => setAttendanceDate(e.target.value)} className="rounded border p-2" /><button onClick={loadAttendanceList} className="rounded bg-blue-600 px-4 py-2 text-white">Load</button></div>
-              <table className="w-full overflow-hidden rounded-lg bg-white text-sm shadow-sm"><thead><tr className="bg-slate-100"><th className="p-2 text-left">Student</th><th className="p-2 text-left">Date</th><th className="p-2 text-left">Status</th><th className="p-2 text-left">Action</th></tr></thead><tbody>{attendanceList.map((a) => <tr key={a._id} className="border-t"><td className="p-2">{a.student?.username}</td><td className="p-2">{a.date}</td><td className="p-2">{a.status}</td><td className="p-2"><button onClick={() => handleMarkAttendance(a.student?._id)} className="rounded bg-emerald-600 px-2 py-1 text-xs text-white">Mark Present</button></td></tr>)}</tbody></table>
-            </div>
-          )}
-
-          {activeTab === 'Payments' && user?.role === 'admin' && (
-            <table className="w-full overflow-hidden rounded-lg bg-white text-sm shadow-sm"><thead><tr className="bg-slate-100"><th className="p-2 text-left">Student</th><th className="p-2 text-left">Paid</th><th className="p-2 text-left">Status</th><th className="p-2 text-left">Action</th></tr></thead><tbody>{paymentList.map((p, idx) => <tr key={idx} className="border-t"><td className="p-2">{p.student?.username}</td><td className="p-2">{p.paidAmount}/{p.totalFees}</td><td className="p-2">{p.status}</td><td className="p-2">{p.status === 'pending' ? <button onClick={() => safeCall(async () => { await paymentAPI.markPaid(token, p.student._id); const refreshed = await paymentAPI.list(token); setPaymentList(refreshed.payments); })} className="rounded bg-emerald-600 px-2 py-1 text-xs text-white">Mark Paid</button> : '-'}</td></tr>)}</tbody></table>
-          )}
-
-          {activeTab === 'Crowd Management' && user?.role === 'admin' && (
-            <div className="space-x-2">{['Low', 'Medium', 'High'].map((level) => <button key={level} onClick={() => safeCall(async () => { await crowdAPI.update(token, level); setCrowd(level); })} className="rounded bg-blue-600 px-4 py-2 text-white">{level}</button>)}</div>
-          )}
-
-          {activeTab === 'Menu Management' && user?.role === 'admin' && (
             <div className="space-y-6">
-              <form className="grid gap-2 rounded-lg bg-white p-4 shadow-sm" onSubmit={saveMenu}>
-                {dayLabels.map((day) => <div key={day} className="grid grid-cols-4 gap-2"><span className="self-center text-sm capitalize">{day}</span><input name={`${day}-breakfast`} defaultValue={menu?.days?.[day]?.breakfast || ''} placeholder="Breakfast" className="rounded border p-2" /><input name={`${day}-lunch`} defaultValue={menu?.days?.[day]?.lunch || ''} placeholder="Lunch" className="rounded border p-2" /><input name={`${day}-dinner`} defaultValue={menu?.days?.[day]?.dinner || ''} placeholder="Dinner" className="rounded border p-2" /></div>)}
-                <button className="mt-2 rounded bg-blue-600 px-4 py-2 text-white">Save Weekly Menu</button>
-              </form>
-              <form className="rounded-lg bg-white p-4 shadow-sm" onSubmit={buildForm}>
-                <h3 className="mb-2 font-semibold">Generate preference form</h3>
-                <input name="title" className="mb-2 w-full rounded border p-2" placeholder="Form title" />
-                <textarea name="questions" className="mb-2 w-full rounded border p-2" placeholder="One question per line" rows={4} />
-                <button className="rounded bg-blue-600 px-4 py-2 text-white">Save Form</button>
-              </form>
-              <div className="rounded-lg bg-white p-4 shadow-sm"><h3 className="mb-2 font-semibold">Suggested menu items</h3>{suggestions.map((s) => <p key={s.item} className="text-sm">{s.item} ({s.votes} votes)</p>)}</div>
+              <h2 className="text-2xl font-bold text-slate-800">Welcome Back!</h2>
+              <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+                <Card title="Today's Attendance status" value={attendance?.statusToday === 'present' ? '✅ Present' : '❌ Absent'} />
+                <Card title="Fee Payment status" value={payment?.status === 'paid' ? '💰 Fully Paid' : '💸 Pending'} />
+                <Card title="Current Mess occupancy" value={crowd} />
+                <Card title="Today's Lunch Menu" value={menu?.days?.[new Date().toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase()]?.lunch || 'No custom items listed'} />
+                <Card title="Total monthly outstanding" value={`₹ ${payment?.totalFees || 0}`} />
+                <Card title="Paid Amount" value={`₹ ${payment?.paidAmount || 0}`} />
+              </div>
             </div>
           )}
 
+          {/* STUDENT QR ATTENDANCE TAB */}
+          {activeTab === 'QR Attendance' && user?.role === 'student' && (
+            <div className="space-y-6">
+              <div className="flex justify-between items-center bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+                <div>
+                  <h2 className="text-xl font-bold text-slate-800">QR Meal Attendance</h2>
+                  <p className="text-sm text-slate-500 mt-1">Show this QR code at the counter to log meal entry.</p>
+                </div>
+                <button className="rounded-lg bg-blue-600 hover:bg-blue-700 px-5 py-2.5 font-semibold text-white shadow-md transition" onClick={handleOpenQr}>
+                  Generate Entry QR
+                </button>
+              </div>
+              <div className="grid gap-6 md:grid-cols-2">
+                <Card title="Total Present days" value={attendance?.stats?.totalPresentDays || 0} />
+                <Card title="Monthly average %" value={`${attendance?.stats?.monthlyAttendancePercent || 0}%`} />
+              </div>
+              <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200">
+                      <th className="p-4 text-left">Date</th>
+                      <th className="p-4 text-left">Status</th>
+                      <th className="p-4 text-left">Log Source</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {attendance?.history?.map((h) => (
+                      <tr key={h._id} className="hover:bg-slate-50/50">
+                        <td className="p-4 text-slate-700 font-medium">{h.date}</td>
+                        <td className="p-4">
+                          <span className={`px-2 py-0.5 rounded text-xs font-semibold ${h.status === 'present' ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-700'}`}>
+                            {h.status}
+                          </span>
+                        </td>
+                        <td className="p-4 text-slate-500 font-mono text-xs">{h.source}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* WEEKLY MENU TAB */}
+          {activeTab === 'Weekly Menu' && (
+            <div className="space-y-6">
+              <h2 className="text-2xl font-bold text-slate-800">Weekly Scheduled Menu</h2>
+              <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200">
+                      <th className="p-4 text-left">Day</th>
+                      <th className="p-4 text-left">Breakfast</th>
+                      <th className="p-4 text-left">Lunch</th>
+                      <th className="p-4 text-left">Dinner</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {dayLabels.map((day) => (
+                      <tr key={day} className="hover:bg-slate-50/50">
+                        <td className="p-4 capitalize font-semibold text-slate-700">{day}</td>
+                        <td className="p-4 text-slate-600">{menu?.days?.[day]?.breakfast || '-'}</td>
+                        <td className="p-4 text-slate-600">{menu?.days?.[day]?.lunch || '-'}</td>
+                        <td className="p-4 text-slate-600">{menu?.days?.[day]?.dinner || '-'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* FOOD PREFERENCE FORM TAB */}
+          {activeTab === 'Food Preference' && user?.role === 'student' && (
+            <div className="space-y-6 text-center max-w-lg mx-auto py-12">
+              <h2 className="text-2xl font-bold text-slate-800">Food Preferences Form</h2>
+              <p className="text-slate-500">Provide weekly preferences to help us customize upcoming mess menu selections.</p>
+              <button className="mt-4 rounded-lg bg-blue-600 hover:bg-blue-700 px-6 py-3 font-semibold text-white shadow-md transition" onClick={() => setShowPrefModal(true)}>
+                Open Preference Form
+              </button>
+            </div>
+          )}
+
+          {/* DYNAMIC FOOD & EXTRAS SELECTION TAB (STUDENT) */}
+          {activeTab === 'Purchase & Extras' && user?.role === 'student' && (
+            <div className="space-y-8">
+              <div>
+                <h2 className="text-2xl font-bold text-slate-800">Dynamic Meals & Extras</h2>
+                <p className="text-slate-500 mt-1">Select items for today to generate your unique billing QR code.</p>
+              </div>
+
+              <div className="grid gap-8 lg:grid-cols-3">
+                {/* Available Items selector list */}
+                <div className="lg:col-span-2 space-y-6">
+                  <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+                    <h3 className="font-bold text-slate-800 text-lg mb-4">Today's Menu Items & Extras</h3>
+                    {dailyItems.length === 0 ? (
+                      <p className="text-sm text-slate-500 text-center py-6">No food items listed for today yet. Check back soon!</p>
+                    ) : (
+                      <div className="space-y-3">
+                        {dailyItems.map(item => (
+                          <div 
+                            key={item._id}
+                            onClick={() => item.isAvailable && handleSelectDailyItem(item._id)}
+                            className={`flex items-center justify-between p-4 rounded-xl border cursor-pointer transition ${
+                              selectedDailyItems[item._id] && item.isAvailable
+                                ? 'bg-blue-50/50 border-blue-500' 
+                                : 'bg-slate-50 border-slate-200 hover:bg-slate-100/55'
+                            } ${!item.isAvailable && 'opacity-50 cursor-not-allowed'}`}
+                          >
+                            <div className="flex items-center gap-3">
+                              <input 
+                                type="checkbox" 
+                                checked={!!selectedDailyItems[item._id] && item.isAvailable}
+                                disabled={!item.isAvailable}
+                                onChange={() => {}}
+                                className="h-4.5 w-4.5 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                              />
+                              <div>
+                                <h4 className="font-semibold text-slate-800 text-sm capitalize">{item.name}</h4>
+                                <span className={`inline-block mt-0.5 px-2 py-0.5 rounded text-[10px] uppercase font-bold tracking-wider ${
+                                  item.category === 'meal' ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'
+                                }`}>
+                                  {item.category}
+                                </span>
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <span className="font-bold text-slate-900 text-base">₹{item.price}</span>
+                              <p className="text-[10px] mt-0.5 font-semibold">
+                                {item.isAvailable ? (
+                                  <span className="text-green-600">Available</span>
+                                ) : (
+                                  <span className="text-red-500">Out of Stock</span>
+                                )}
+                              </p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Bill Generator sidebar */}
+                <div className="space-y-6">
+                  <div className="bg-slate-900 text-white rounded-xl shadow-lg p-6 flex flex-col justify-between sticky top-6">
+                    <div>
+                      <h3 className="font-bold text-lg border-b border-slate-800 pb-3">QR Invoice Generator</h3>
+                      
+                      <div className="mt-4 space-y-2 max-h-48 overflow-y-auto">
+                        {dailyItems.filter(item => selectedDailyItems[item._id] && item.isAvailable).length === 0 ? (
+                          <p className="text-xs text-slate-400 py-4 text-center">No items selected.</p>
+                        ) : (
+                          dailyItems.filter(item => selectedDailyItems[item._id] && item.isAvailable).map(item => (
+                            <div key={item._id} className="flex justify-between text-sm py-1">
+                              <span className="text-slate-300 capitalize">{item.name}</span>
+                              <span className="font-semibold">₹{item.price}</span>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="mt-6 border-t border-slate-800 pt-4">
+                      <div className="flex justify-between text-base font-bold mb-5">
+                        <span>Total Bill</span>
+                        <span className="text-blue-400">
+                          ₹{dailyItems.filter(item => selectedDailyItems[item._id] && item.isAvailable).reduce((acc, curr) => acc + curr.price, 0)}
+                        </span>
+                      </div>
+                      
+                      <button 
+                        disabled={!purchaseQrPayload}
+                        onClick={() => setShowBillingQrModal(true)}
+                        className={`w-full rounded-xl py-3 text-center font-bold text-sm transition duration-150 ${
+                          purchaseQrPayload 
+                            ? 'bg-blue-600 hover:bg-blue-700 text-white shadow-md' 
+                            : 'bg-slate-800 text-slate-500 cursor-not-allowed'
+                        }`}
+                      >
+                        Generate Purchase QR
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Transactions list details */}
+              <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+                <h3 className="font-bold text-slate-800 text-lg mb-4">Historical Dynamic Purchases</h3>
+                {studentTransactions.length === 0 ? (
+                  <p className="text-sm text-slate-500 py-4">No scanning purchases logged for this month.</p>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200">
+                          <th className="p-4 text-left">Purchase Date</th>
+                          <th className="p-4 text-left">Purchased Items</th>
+                          <th className="p-4 text-right">Total Price</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {studentTransactions.map(trans => (
+                          <tr key={trans._id} className="hover:bg-slate-50/50">
+                            <td className="p-4 text-slate-700 font-medium">{trans.date}</td>
+                            <td className="p-4 text-slate-600 capitalize">
+                              {trans.items.map(i => `${i.name} (₹${i.price})`).join(', ')}
+                            </td>
+                            <td className="p-4 text-right font-bold text-slate-900">₹{trans.totalAmount}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* STUDENT FEES & PAYMENTS TAB */}
+          {activeTab === 'Fees / Payments' && user?.role === 'student' && (
+            <div className="space-y-6">
+              <div className="grid gap-6 md:grid-cols-3">
+                <Card title="Total Monthly Bill (Incl. Extras)" value={`₹ ${payment?.totalFees || 0}`} />
+                <Card title="Total Paid" value={`₹ ${payment?.paidAmount || 0}`} />
+                <Card title="Billing Status" value={payment?.status === 'paid' ? 'Paid' : 'Pending'} />
+              </div>
+              <div className="flex gap-4">
+                <button className="rounded-lg bg-emerald-600 hover:bg-emerald-700 px-5 py-3 font-bold text-white shadow-md transition duration-150" onClick={handlePayNow}>
+                  Pay Now (Simulate Payment)
+                </button>
+              </div>
+
+              {/* Transactions view inside payments tab for full financial audit trail */}
+              <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 mt-6">
+                <h3 className="font-bold text-slate-800 text-lg mb-4">Detailed Purchases & Billing Logs</h3>
+                {studentTransactions.length === 0 ? (
+                  <p className="text-sm text-slate-500 py-4">No extras or purchases billed yet.</p>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200">
+                          <th className="p-4 text-left">Date</th>
+                          <th className="p-4 text-left">Description</th>
+                          <th className="p-4 text-right">Charged Amount</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {studentTransactions.map(trans => (
+                          <tr key={trans._id} className="hover:bg-slate-50/50">
+                            <td className="p-4 text-slate-600">{trans.date}</td>
+                            <td className="p-4 text-slate-800 capitalize font-medium">
+                              Purchased Extras: {trans.items.map(i => i.name).join(', ')}
+                            </td>
+                            <td className="p-4 text-right font-bold text-red-600">+ ₹{trans.totalAmount}</td>
+                          </tr>
+                        ))}
+                        <tr className="bg-slate-50 font-bold border-t-2 border-slate-200">
+                          <td className="p-4 text-slate-800" colSpan={2}>Base Mess Charge + Extras Combined Balance</td>
+                          <td className="p-4 text-right text-slate-900">₹{payment?.totalFees || 0}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* STUDENT FEEDBACK TAB */}
+          {activeTab === 'Feedback' && user?.role === 'student' && (
+            <div className="grid gap-8 md:grid-cols-3">
+              <form className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 md:col-span-1 h-fit" onSubmit={submitFeedback}>
+                <h3 className="font-bold text-slate-800 text-lg mb-4">Submit New Feedback</h3>
+                <input className="mb-3 w-full rounded-lg border border-slate-300 p-2.5 text-sm focus:ring-blue-500 focus:border-blue-500" name="title" placeholder="Feedback title" required />
+                <textarea className="mb-4 w-full rounded-lg border border-slate-300 p-2.5 text-sm focus:ring-blue-500 focus:border-blue-500" name="message" placeholder="Describe your concern or feedback in detail" rows={4} required />
+                <button className="w-full rounded-lg bg-blue-600 hover:bg-blue-700 py-2.5 font-bold text-white shadow transition">Submit</button>
+              </form>
+              <div className="bg-white rounded-xl border border-slate-200 shadow-sm md:col-span-2 overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200">
+                      <th className="p-4 text-left">Title</th>
+                      <th className="p-4 text-left">Status</th>
+                      <th className="p-4 text-left">Admin Response</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {feedback.map((f) => (
+                      <tr key={f._id} className="hover:bg-slate-50/50">
+                        <td className="p-4 text-slate-800 font-medium">{f.title}</td>
+                        <td className="p-4">
+                          <span className={`px-2 py-0.5 rounded text-xs font-semibold uppercase ${f.status === 'resolved' ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-amber-50 text-amber-700 border border-amber-200'}`}>
+                            {f.status}
+                          </span>
+                        </td>
+                        <td className="p-4 text-slate-500">{f.adminResponse || '-'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* ADMIN ATTENDANCE MANAGEMENT TAB */}
+          {activeTab === 'Attendance Management' && user?.role === 'admin' && (
+            <div className="space-y-6">
+              <div className="flex gap-3 bg-white p-4 rounded-xl border border-slate-200 shadow-sm items-center">
+                <input type="date" value={attendanceDate} onChange={(e) => setAttendanceDate(e.target.value)} className="rounded-lg border border-slate-300 p-2 text-sm focus:ring-blue-500 focus:border-blue-500" />
+                <button onClick={loadAttendanceList} className="rounded-lg bg-blue-600 hover:bg-blue-700 px-5 py-2 font-semibold text-white shadow-sm transition">
+                  Load Records
+                </button>
+              </div>
+              <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200">
+                      <th className="p-4 text-left">Student Name</th>
+                      <th className="p-4 text-left">Date</th>
+                      <th className="p-4 text-left">Status</th>
+                      <th className="p-4 text-left">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {attendanceList.map((a) => (
+                      <tr key={a._id} className="hover:bg-slate-50/50">
+                        <td className="p-4 text-slate-800 font-medium">{a.student?.username}</td>
+                        <td className="p-4 text-slate-600">{a.date}</td>
+                        <td className="p-4 text-slate-600 capitalize">{a.status}</td>
+                        <td className="p-4">
+                          <button onClick={() => handleMarkAttendance(a.student?._id)} className="rounded bg-emerald-600 hover:bg-emerald-700 px-3 py-1 text-xs font-semibold text-white shadow-sm transition">
+                            Mark Present
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* STAFF DALLY ITEMS MANAGEMENT TAB (ADMIN) */}
+          {activeTab === 'Daily Items Manager' && user?.role === 'admin' && (
+            <div className="grid gap-8 md:grid-cols-3">
+              {/* Daily Item creation Form */}
+              <form className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 md:col-span-1 h-fit" onSubmit={handleAddDailyItem}>
+                <h3 className="font-bold text-slate-800 text-lg mb-4">Add Menu Item & Extras</h3>
+                
+                <div className="mb-3">
+                  <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Item Name</label>
+                  <input className="w-full rounded-lg border border-slate-300 p-2.5 text-sm focus:ring-blue-500 focus:border-blue-500" name="name" placeholder="e.g. Curd, Chips, Lunch Meal" required />
+                </div>
+
+                <div className="mb-3">
+                  <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Price (₹)</label>
+                  <input type="number" min="0" className="w-full rounded-lg border border-slate-300 p-2.5 text-sm focus:ring-blue-500 focus:border-blue-500" name="price" placeholder="e.g. 15" required />
+                </div>
+
+                <div className="mb-4">
+                  <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Category</label>
+                  <select name="category" className="w-full rounded-lg border border-slate-300 p-2.5 text-sm focus:ring-blue-500 focus:border-blue-500 bg-white">
+                    <option value="extra">Extra Item (curd, chips, etc.)</option>
+                    <option value="meal">Meal Base (breakfast, lunch, etc.)</option>
+                  </select>
+                </div>
+
+                <button className="w-full rounded-lg bg-blue-600 hover:bg-blue-700 py-2.5 font-bold text-white shadow transition">Publish Today</button>
+              </form>
+
+              {/* Items listing with toggle availability */}
+              <div className="bg-white rounded-xl border border-slate-200 shadow-sm md:col-span-2 p-6">
+                <h3 className="font-bold text-slate-800 text-lg mb-4">Today's Listed Items & Stock</h3>
+                {dailyItems.length === 0 ? (
+                  <p className="text-sm text-slate-500 text-center py-8">No daily items listed. Add items to publish to student profiles.</p>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200">
+                          <th className="p-4 text-left">Item Name</th>
+                          <th className="p-4 text-left">Category</th>
+                          <th className="p-4 text-left">Price</th>
+                          <th className="p-4 text-left">Status</th>
+                          <th className="p-4 text-center">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {dailyItems.map(item => (
+                          <tr key={item._id} className="hover:bg-slate-50/50">
+                            <td className="p-4 text-slate-800 font-semibold capitalize">{item.name}</td>
+                            <td className="p-4 text-slate-600 capitalize">
+                              <span className={`px-2 py-0.5 rounded text-[10px] uppercase font-bold tracking-wider ${
+                                item.category === 'meal' ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'
+                              }`}>
+                                {item.category}
+                              </span>
+                            </td>
+                            <td className="p-4 text-slate-900 font-bold">₹{item.price}</td>
+                            <td className="p-4 text-slate-600">
+                              <span className={`px-2 py-0.5 rounded text-xs font-semibold ${item.isAvailable ? 'text-green-700 bg-green-50 border border-green-200' : 'text-red-700 bg-red-50'}`}>
+                                {item.isAvailable ? 'In Stock' : 'Out of Stock'}
+                              </span>
+                            </td>
+                            <td className="p-4 text-center flex justify-center gap-2">
+                              <button 
+                                onClick={() => handleToggleDailyItem(item._id)}
+                                className={`rounded px-2.5 py-1 text-xs font-semibold text-white shadow-sm transition duration-150 ${
+                                  item.isAvailable ? 'bg-amber-600 hover:bg-amber-700' : 'bg-emerald-600 hover:bg-emerald-700'
+                                }`}
+                              >
+                                {item.isAvailable ? 'Mark Sold Out' : 'Restock'}
+                              </button>
+                              <button 
+                                onClick={() => handleDeleteDailyItem(item._id)}
+                                className="rounded bg-red-600 hover:bg-red-700 px-2.5 py-1 text-xs font-semibold text-white shadow-sm transition"
+                              >
+                                Delete
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* STAFF CAMERA QR CODE SCANNER BILLING TAB (ADMIN) */}
+          {activeTab === 'QR Scanner Billing' && user?.role === 'admin' && (
+            <div className="space-y-8 max-w-xl mx-auto">
+              <div className="text-center">
+                <h2 className="text-2xl font-bold text-slate-800">Mess QR Billing Terminal</h2>
+                <p className="text-slate-500 mt-1">Scan student purchase QR codes to review selections and update billing.</p>
+              </div>
+
+              {/* Scanning details / camera rendering */}
+              <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 flex flex-col items-center">
+                {isScanning ? (
+                  <div className="w-full max-w-md">
+                    <div id="qr-reader" className="overflow-hidden rounded-xl border-2 border-dashed border-slate-300 p-2 bg-slate-50"></div>
+                    <button 
+                      onClick={() => setIsScanning(false)}
+                      className="mt-4 w-full rounded-lg bg-red-600 hover:bg-red-700 py-2.5 font-bold text-white shadow transition"
+                    >
+                      Cancel Camera Scanning
+                    </button>
+                  </div>
+                ) : (
+                  <button 
+                    onClick={() => {
+                      setScannedTransactionData(null);
+                      setIsScanning(true);
+                    }}
+                    className="flex items-center gap-2 rounded-xl bg-blue-600 hover:bg-blue-700 px-6 py-3 font-bold text-white shadow-md transition duration-150 text-base"
+                  >
+                    📷 Open Scanner Camera
+                  </button>
+                )}
+              </div>
+
+              {/* Verified results confirmation screen */}
+              {scannedTransactionData && (
+                <div className="bg-slate-900 text-white rounded-xl shadow-xl p-6 space-y-4 animate-fadeIn">
+                  <div className="border-b border-slate-800 pb-3 flex justify-between items-center">
+                    <div>
+                      <h3 className="font-bold text-lg text-blue-400">Verified Invoice</h3>
+                      <p className="text-xs text-slate-400 mt-0.5">Student: {scannedTransactionData.username}</p>
+                    </div>
+                    <span className="bg-green-600/20 text-green-400 border border-green-500/20 px-2 py-0.5 rounded text-[10px] uppercase font-bold tracking-widest">
+                      Ready to Bill
+                    </span>
+                  </div>
+
+                  <div className="space-y-2">
+                    <h4 className="text-xs text-slate-400 font-bold uppercase tracking-wider">Scanned Selections</h4>
+                    {scannedTransactionData.items?.map((item, idx) => (
+                      <div key={idx} className="flex justify-between text-sm">
+                        <span className="text-slate-300 capitalize">{item.name}</span>
+                        <span className="font-semibold text-slate-100">₹{item.price}</span>
+                      </div>
+                    ))}
+                    <div className="flex justify-between text-base font-bold border-t border-slate-800 pt-3 mt-2">
+                      <span>Total Invoice Amount</span>
+                      <span className="text-blue-400 text-lg">₹{scannedTransactionData.totalAmount}</span>
+                    </div>
+                  </div>
+
+                  <div className="flex gap-3 pt-2">
+                    <button 
+                      onClick={handleConfirmTransaction}
+                      className="flex-1 rounded-lg bg-green-600 hover:bg-green-700 py-3 text-center font-bold text-sm text-white shadow-md transition"
+                    >
+                      Confirm & Add to Bill
+                    </button>
+                    <button 
+                      onClick={() => setScannedTransactionData(null)}
+                      className="rounded-lg bg-slate-800 hover:bg-slate-700 px-5 py-3 text-center font-bold text-sm text-slate-400 transition"
+                    >
+                      Reject Scan
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Paste fallback dashboard */}
+              <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 space-y-3">
+                <h3 className="font-bold text-slate-800 text-sm">Offline Testing / Paste Fallback</h3>
+                <p className="text-xs text-slate-500">If camera permissions are blocked, paste the JSON payload string here from the student QR canvas to simulate a scan.</p>
+                <textarea 
+                  rows={3}
+                  value={scanPayloadInput}
+                  onChange={(e) => setScanPayloadInput(e.target.value)}
+                  className="w-full rounded-lg border border-slate-300 p-2 text-xs font-mono focus:ring-blue-500 focus:border-blue-500 bg-slate-50"
+                  placeholder='{"type":"mess-billing", ...}'
+                />
+                <button 
+                  onClick={() => {
+                    try {
+                      const data = JSON.parse(scanPayloadInput);
+                      if (data.type === "mess-billing") {
+                        setScannedTransactionData(data);
+                        setError("");
+                      } else {
+                        setError("Invalid QR payload type.");
+                      }
+                    } catch (err) {
+                      setError("Failed to parse JSON structure. Make sure you pasted the exact text.");
+                    }
+                  }}
+                  className="rounded-lg bg-slate-800 hover:bg-slate-700 px-4 py-2 text-xs text-white transition font-semibold"
+                >
+                  Verify JSON Payload
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* ADMIN PAYMENTS MANAGER TAB */}
+          {activeTab === 'Payments' && user?.role === 'admin' && (
+            <div className="space-y-6">
+              <h2 className="text-2xl font-bold text-slate-800">Student Monthly Bills</h2>
+              <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200">
+                      <th className="p-4 text-left">Student Name</th>
+                      <th className="p-4 text-left">Charged Amount</th>
+                      <th className="p-4 text-left">Status</th>
+                      <th className="p-4 text-left">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {paymentList.map((p, idx) => (
+                      <tr key={idx} className="hover:bg-slate-50/50">
+                        <td className="p-4 text-slate-800 font-medium">{p.student?.username}</td>
+                        <td className="p-4 font-semibold text-slate-700">₹{p.paidAmount} / ₹{p.totalFees}</td>
+                        <td className="p-4">
+                          <span className={`px-2 py-0.5 rounded text-xs font-semibold uppercase ${p.status === 'paid' ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-amber-50 text-amber-700 border border-amber-200'}`}>
+                            {p.status}
+                          </span>
+                        </td>
+                        <td className="p-4">
+                          {p.status === 'pending' ? (
+                            <button 
+                              onClick={() => safeCall(async () => { 
+                                await paymentAPI.markPaid(token, p.student._id); 
+                                const refreshed = await paymentAPI.list(token); 
+                                setPaymentList(refreshed.payments); 
+                              })} 
+                              className="rounded bg-emerald-600 hover:bg-emerald-700 px-3 py-1 text-xs font-bold text-white shadow transition"
+                            >
+                              Mark Settled
+                            </button>
+                          ) : '-'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* ADMIN CROWD LEVEL STATUS TOGGLE TAB */}
+          {activeTab === 'Crowd Management' && user?.role === 'admin' && (
+            <div className="space-y-6 max-w-md mx-auto text-center py-12">
+              <h2 className="text-2xl font-bold text-slate-800">Crowd Levels Status</h2>
+              <p className="text-slate-500 mb-6">Toggle the live mess crowd occupancy status visible to student portals.</p>
+              <div className="flex justify-center gap-3">
+                {['Low', 'Medium', 'High'].map((level) => (
+                  <button 
+                    key={level} 
+                    onClick={() => safeCall(async () => { 
+                      await crowdAPI.update(token, level); 
+                      setCrowd(level); 
+                    })} 
+                    className={`rounded-xl px-6 py-3 font-bold shadow-sm border transition ${
+                      crowd === level 
+                        ? 'bg-blue-600 border-blue-500 text-white shadow' 
+                        : 'bg-white hover:bg-slate-100 text-slate-700 border-slate-200'
+                    }`}
+                  >
+                    {level}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* ADMIN MENU MANAGEMENT WEEKLY SCHEDULE TAB */}
+          {activeTab === 'Menu Management' && user?.role === 'admin' && (
+            <div className="space-y-8">
+              <form className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 space-y-4" onSubmit={saveMenu}>
+                <h3 className="font-bold text-slate-800 text-lg border-b pb-2">Edit Weekly Scheduled Menu</h3>
+                {dayLabels.map((day) => (
+                  <div key={day} className="grid grid-cols-1 md:grid-cols-4 gap-3 items-center">
+                    <span className="text-sm font-semibold capitalize text-slate-700">{day}</span>
+                    <input name={`${day}-breakfast`} defaultValue={menu?.days?.[day]?.breakfast || ''} placeholder="Breakfast" className="rounded-lg border border-slate-300 p-2 text-sm focus:ring-blue-500 focus:border-blue-500" />
+                    <input name={`${day}-lunch`} defaultValue={menu?.days?.[day]?.lunch || ''} placeholder="Lunch" className="rounded-lg border border-slate-300 p-2 text-sm focus:ring-blue-500 focus:border-blue-500" />
+                    <input name={`${day}-dinner`} defaultValue={menu?.days?.[day]?.dinner || ''} placeholder="Dinner" className="rounded-lg border border-slate-300 p-2 text-sm focus:ring-blue-500 focus:border-blue-500" />
+                  </div>
+                ))}
+                <button className="rounded-lg bg-blue-600 hover:bg-blue-700 px-5 py-2.5 font-bold text-white shadow-md transition">
+                  Publish Weekly Menu
+                </button>
+              </form>
+
+              <form className="bg-white rounded-xl border border-slate-200 shadow-sm p-6" onSubmit={buildForm}>
+                <h3 className="font-bold text-slate-800 text-lg mb-2">Publish Student Preference Form</h3>
+                <input name="title" className="mb-3 w-full rounded-lg border border-slate-300 p-2.5 text-sm focus:ring-blue-500 focus:border-blue-500" placeholder="Form title (e.g. Favorite Dinner Selection)" />
+                <textarea name="questions" className="mb-4 w-full rounded-lg border border-slate-300 p-2.5 text-sm focus:ring-blue-500 focus:border-blue-500" placeholder="Write one preference question per line" rows={4} />
+                <button className="rounded-lg bg-blue-600 hover:bg-blue-700 px-5 py-2.5 font-bold text-white shadow-md transition">
+                  Publish Form
+                </button>
+              </form>
+
+              <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+                <h3 className="font-bold text-slate-800 text-lg mb-3">Popular Vote Menu Item Suggestions</h3>
+                <div className="grid gap-2">
+                  {suggestions.length === 0 ? (
+                    <p className="text-sm text-slate-500">No preference votes logged yet.</p>
+                  ) : (
+                    suggestions.map((s) => (
+                      <div key={s.item} className="flex justify-between border-b pb-1 text-sm text-slate-600">
+                        <span className="capitalize">{s.item}</span>
+                        <span className="font-bold">{s.votes} votes</span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ADMIN INVENTORY STOCK TAB */}
           {activeTab === 'Inventory' && user?.role === 'admin' && (
-            <div className="space-y-4">
-              <form className="flex gap-2 rounded-lg bg-white p-4 shadow-sm" onSubmit={saveInventory}>
-                <input name="name" className="rounded border p-2" placeholder="Item name" required />
-                <input name="quantity" type="number" className="rounded border p-2" placeholder="Qty" required />
-                <input name="unit" className="rounded border p-2" placeholder="Unit" defaultValue="kg" />
-                <button className="rounded bg-blue-600 px-4 py-2 text-white">Update</button>
+            <div className="space-y-6">
+              <form className="flex flex-wrap gap-3 bg-white p-6 rounded-xl border border-slate-200 shadow-sm items-center" onSubmit={saveInventory}>
+                <input name="name" className="rounded-lg border border-slate-300 p-2.5 text-sm focus:ring-blue-500 focus:border-blue-500 flex-1 min-w-[200px]" placeholder="Item name" required />
+                <input name="quantity" type="number" className="rounded-lg border border-slate-300 p-2.5 text-sm focus:ring-blue-500 focus:border-blue-500 w-32" placeholder="Quantity" required />
+                <input name="unit" className="rounded-lg border border-slate-300 p-2.5 text-sm focus:ring-blue-500 focus:border-blue-500 w-32" placeholder="Unit" defaultValue="kg" />
+                <button className="rounded-lg bg-blue-600 hover:bg-blue-700 px-5 py-2.5 font-semibold text-white shadow-sm transition">
+                  Update Stock
+                </button>
               </form>
-              <table className="w-full overflow-hidden rounded-lg bg-white text-sm shadow-sm"><thead><tr className="bg-slate-100"><th className="p-2 text-left">Item</th><th className="p-2 text-left">Stock</th><th className="p-2 text-left">Unit</th></tr></thead><tbody>{inventory.map((i) => <tr key={i._id} className="border-t"><td className="p-2">{i.name}</td><td className="p-2">{i.quantity}</td><td className="p-2">{i.unit}</td></tr>)}</tbody></table>
+              <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200">
+                      <th className="p-4 text-left">Ingredient Name</th>
+                      <th className="p-4 text-left">Available Stock</th>
+                      <th className="p-4 text-left">Unit</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {inventory.map((i) => (
+                      <tr key={i._id} className="hover:bg-slate-50/50">
+                        <td className="p-4 text-slate-800 font-semibold capitalize">{i.name}</td>
+                        <td className="p-4 text-slate-700 font-medium">{i.quantity}</td>
+                        <td className="p-4 text-slate-600">{i.unit}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           )}
 
+          {/* ADMIN FEEDBACK RESOLUTION TAB */}
           {activeTab === 'Feedback Management' && user?.role === 'admin' && (
-            <table className="w-full overflow-hidden rounded-lg bg-white text-sm shadow-sm"><thead><tr className="bg-slate-100"><th className="p-2 text-left">Student</th><th className="p-2 text-left">Message</th><th className="p-2 text-left">Status</th><th className="p-2 text-left">Action</th></tr></thead><tbody>{feedback.map((f) => <tr key={f._id} className="border-t"><td className="p-2">{f.student?.username}</td><td className="p-2">{f.message}</td><td className="p-2">{f.status}</td><td className="p-2">{f.status === 'pending' ? <button onClick={() => resolveFeedback(f._id)} className="rounded bg-emerald-600 px-2 py-1 text-xs text-white">Resolve</button> : '-'}</td></tr>)}</tbody></table>
+            <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200">
+                    <th className="p-4 text-left">Student Name</th>
+                    <th className="p-4 text-left">Complaint Message</th>
+                    <th className="p-4 text-left">Status</th>
+                    <th className="p-4 text-left">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {feedback.map((f) => (
+                    <tr key={f._id} className="hover:bg-slate-50/50">
+                      <td className="p-4 text-slate-800 font-medium">{f.student?.username}</td>
+                      <td className="p-4 text-slate-600">{f.message}</td>
+                      <td className="p-4">
+                        <span className={`px-2 py-0.5 rounded text-xs font-semibold uppercase ${f.status === 'resolved' ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-amber-50 text-amber-700 border border-amber-200'}`}>
+                          {f.status}
+                        </span>
+                      </td>
+                      <td className="p-4">
+                        {f.status === 'pending' ? (
+                          <button onClick={() => resolveFeedback(f._id)} className="rounded bg-emerald-600 hover:bg-emerald-700 px-3 py-1.5 text-xs font-bold text-white shadow transition">
+                            Mark Resolved
+                          </button>
+                        ) : '-'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
 
+          {/* ADMIN OVERVIEW DASHBOARD */}
           {activeTab === 'Dashboard' && user?.role === 'admin' && adminOverview && (
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-              <Card title="Total students" value={adminOverview.totalStudents} />
-              <Card title="Today's attendance" value={adminOverview.todaysAttendance} />
-              <Card title="Meals served" value={adminOverview.mealsServed} />
-              <Card title="Pending payments" value={adminOverview.pendingPayments} />
-              <Card title="Crowd level" value={adminOverview.crowdLevel} />
+            <div className="space-y-6">
+              <h2 className="text-2xl font-bold text-slate-800">Admin Command Center</h2>
+              <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+                <Card title="Registered Students" value={adminOverview.totalStudents} />
+                <Card title="Today's Meal Attendance" value={adminOverview.todaysAttendance} />
+                <Card title="Daily Meals Served" value={adminOverview.mealsServed} />
+                <Card title="Outstanding Fee Payments" value={adminOverview.pendingPayments} />
+                <Card title="Portal Occupancy crowd" value={adminOverview.crowdLevel} />
+              </div>
             </div>
           )}
         </main>
       </div>
 
+      {/* ATTENDANCE QR CODE MODAL */}
       {showQrModal && (
-        <div className="fixed inset-0 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-md rounded-lg bg-white p-4">
-            <h3 className="mb-3 text-lg font-semibold">Today's Attendance QR</h3>
-            <div className="flex justify-center"><QRCodeCanvas value={JSON.stringify(qrData?.payload || {})} size={200} /></div>
-            <button className="mt-4 rounded bg-slate-900 px-4 py-2 text-white" onClick={() => setShowQrModal(false)}>Close</button>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl border border-slate-100 transform scale-100 transition duration-300">
+            <div className="flex justify-between items-center border-b pb-3 mb-4">
+              <h3 className="text-lg font-bold text-slate-800">Attendance Scan Entry</h3>
+              <button onClick={() => setShowQrModal(false)} className="text-slate-400 hover:text-slate-600 text-lg">✕</button>
+            </div>
+            <div className="flex flex-col items-center py-6">
+              <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-md">
+                <QRCodeCanvas value={JSON.stringify(qrData?.payload || {})} size={200} />
+              </div>
+              <p className="mt-4 text-xs text-slate-500 font-mono">Date: {qrData?.payload?.date}</p>
+            </div>
+            <button className="w-full rounded-xl bg-slate-900 hover:bg-slate-800 py-3 font-semibold text-white transition shadow" onClick={() => setShowQrModal(false)}>
+              Close QR Screen
+            </button>
           </div>
         </div>
       )}
 
+      {/* MEAL/EXTRAS BILLING PURCHASE QR CODE MODAL (STUDENT VIEW) */}
+      {showBillingQrModal && purchaseQrPayload && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl border border-slate-100 animate-scaleUp">
+            <div className="flex justify-between items-center border-b pb-3 mb-4">
+              <h3 className="text-lg font-bold text-slate-800">Purchase QR Billing Invoice</h3>
+              <button onClick={() => setShowBillingQrModal(false)} className="text-slate-400 hover:text-slate-600 text-lg">✕</button>
+            </div>
+            <div className="flex flex-col items-center py-4">
+              <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-md">
+                <QRCodeCanvas value={JSON.stringify(purchaseQrPayload)} size={220} />
+              </div>
+              <p className="mt-4 text-sm font-bold text-slate-900">Total Purchase: ₹{purchaseQrPayload.totalAmount}</p>
+              <p className="text-xs text-slate-500 mt-1">Show this QR to the mess staff at checkout to add to your monthly bill.</p>
+            </div>
+
+            {/* Render absolute JSON value for copy-paste fallback testing convenience */}
+            <div className="mt-2 bg-slate-50 border rounded-lg p-2.5 font-mono text-[9px] text-slate-600 overflow-x-auto select-all max-h-24">
+              {JSON.stringify(purchaseQrPayload)}
+            </div>
+            <p className="text-[9px] text-center text-slate-400 mt-1 mb-4 select-none">💡 TIP: Triple-click above box to copy QR code text for testing paste fallback.</p>
+
+            <button 
+              className="w-full rounded-xl bg-slate-900 hover:bg-slate-800 py-3 font-semibold text-white transition shadow" 
+              onClick={() => {
+                setShowBillingQrModal(false);
+                setSelectedDailyItems({}); // Clear selections upon generation
+              }}
+            >
+              Done & Clear Selections
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* FOOD PREFERENCE QUESTIONS DIALOG MODAL */}
       {showPrefModal && (
-        <div className="fixed inset-0 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-xl rounded-lg bg-white p-4">
-            <h3 className="mb-3 text-lg font-semibold">{prefForm?.title || 'Preference Form'}</h3>
-            {prefForm?.questions?.map((q) => <div key={q.id} className="mb-2"><label className="mb-1 block text-sm">{q.label}</label><input className="w-full rounded border p-2" onChange={(e) => setPrefAnswers((prev) => ({ ...prev, [q.id]: e.target.value }))} /></div>)}
-            <div className="mt-4 flex gap-2">
-              <button className="rounded bg-blue-600 px-4 py-2 text-white" onClick={submitPreferences}>Submit</button>
-              <button className="rounded bg-slate-500 px-4 py-2 text-white" onClick={() => setShowPrefModal(false)}>Cancel</button>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-xl rounded-2xl bg-white p-6 shadow-2xl border border-slate-100">
+            <div className="flex justify-between items-center border-b pb-3 mb-4">
+              <h3 className="text-lg font-bold text-slate-800">{prefForm?.title || 'Preference Form'}</h3>
+              <button onClick={() => setShowPrefModal(false)} className="text-slate-400 hover:text-slate-600 text-lg">✕</button>
+            </div>
+            <div className="space-y-4 py-3">
+              {prefForm?.questions?.map((q) => (
+                <div key={q.id}>
+                  <label className="mb-1 block text-sm font-semibold text-slate-700">{q.label}</label>
+                  <input className="w-full rounded-lg border border-slate-300 p-2.5 text-sm focus:ring-blue-500 focus:border-blue-500 bg-slate-50" onChange={(e) => setPrefAnswers((prev) => ({ ...prev, [q.id]: e.target.value }))} />
+                </div>
+              ))}
+            </div>
+            <div className="mt-6 flex gap-3">
+              <button className="flex-1 rounded-xl bg-blue-600 hover:bg-blue-700 py-3 font-semibold text-white shadow-md transition" onClick={submitPreferences}>
+                Submit Response
+              </button>
+              <button className="rounded-xl bg-slate-100 hover:bg-slate-200 px-6 py-3 font-semibold text-slate-600 transition" onClick={() => setShowPrefModal(false)}>
+                Cancel
+              </button>
             </div>
           </div>
         </div>

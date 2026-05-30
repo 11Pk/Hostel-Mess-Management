@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api',
+  baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api',
 });
 
 const authConfig = (token) => ({
@@ -39,6 +39,10 @@ export const menuAPI = {
   createForm: (token, payload) => api.post('/menu/preferences/form', payload, authConfig(token)).then((r) => r.data),
   submitPrefs: (token, payload) => api.post('/menu/preferences/submit', payload, authConfig(token)).then((r) => r.data),
   suggestions: (token) => api.get('/menu/preferences/suggestions', authConfig(token)).then((r) => r.data),
+  getDailyItems: (token, date) => api.get(`/menu/daily-items?date=${date || ''}`, authConfig(token)).then((r) => r.data),
+  addDailyItem: (token, payload) => api.post('/menu/daily-items', payload, authConfig(token)).then((r) => r.data),
+  toggleDailyItem: (token, id) => api.patch(`/menu/daily-items/${id}/toggle`, {}, authConfig(token)).then((r) => r.data),
+  deleteDailyItem: (token, id) => api.delete(`/menu/daily-items/${id}`, authConfig(token)).then((r) => r.data),
 };
 
 export const paymentAPI = {
@@ -46,6 +50,8 @@ export const paymentAPI = {
   payNow: (token) => api.post('/payments/pay', {}, authConfig(token)).then((r) => r.data),
   list: (token) => api.get('/payments/all', authConfig(token)).then((r) => r.data),
   markPaid: (token, studentId) => api.post('/payments/mark-paid', { studentId }, authConfig(token)).then((r) => r.data),
+  processScan: (token, payload) => api.post('/payments/scan-transaction', payload, authConfig(token)).then((r) => r.data),
+  getTransactions: (token) => api.get('/payments/transactions/me', authConfig(token)).then((r) => r.data),
 };
 
 export const feedbackAPI = {

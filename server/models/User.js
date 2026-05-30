@@ -53,6 +53,7 @@ userSchema.methods.matchPassword = async function (plainPassword) {
 // Remove sensitive fields from toJSON output
 userSchema.methods.toJSON = function () {
   const obj = this.toObject();
+  obj.id = obj._id;
   delete obj.password;
   delete obj.__v;
   return obj;
