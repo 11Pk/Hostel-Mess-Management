@@ -4,6 +4,7 @@ const dayMenuSchema = new mongoose.Schema(
   {
     breakfast: { type: String, default: '' },
     lunch: { type: String, default: '' },
+    snacks: { type: String, default: '' },
     dinner: { type: String, default: '' },
   },
   { _id: false }

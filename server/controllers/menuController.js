@@ -3,13 +3,13 @@ const PreferenceForm = require('../models/PreferenceForm');
 const PreferenceResponse = require('../models/PreferenceResponse');
 
 const defaultDays = {
-  monday: { breakfast: '', lunch: '', dinner: '' },
-  tuesday: { breakfast: '', lunch: '', dinner: '' },
-  wednesday: { breakfast: '', lunch: '', dinner: '' },
-  thursday: { breakfast: '', lunch: '', dinner: '' },
-  friday: { breakfast: '', lunch: '', dinner: '' },
-  saturday: { breakfast: '', lunch: '', dinner: '' },
-  sunday: { breakfast: '', lunch: '', dinner: '' },
+  monday: { breakfast: '', lunch: '', snacks: '', dinner: '' },
+  tuesday: { breakfast: '', lunch: '', snacks: '', dinner: '' },
+  wednesday: { breakfast: '', lunch: '', snacks: '', dinner: '' },
+  thursday: { breakfast: '', lunch: '', snacks: '', dinner: '' },
+  friday: { breakfast: '', lunch: '', snacks: '', dinner: '' },
+  saturday: { breakfast: '', lunch: '', snacks: '', dinner: '' },
+  sunday: { breakfast: '', lunch: '', snacks: '', dinner: '' },
 };
 
 const getWeeklyMenu = async (req, res, next) => {

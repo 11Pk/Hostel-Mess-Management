@@ -36,16 +36,14 @@ const processScan = async (req, res, next) => {
     if (!payment) {
       payment = new Payment({
         student: studentId,
-        totalFees: 3000 + Number(totalAmount),
-        paidAmount: 0,
-        status: 'pending',
+        totalFees: 25000,
+        paidAmount: 25000,
+        status: 'paid',
       });
     } else {
-      payment.totalFees += Number(totalAmount);
-      // Reset payment status to pending as there are now new outstanding fees
-      if (payment.paidAmount < payment.totalFees) {
-        payment.status = 'pending';
-      }
+      payment.totalFees = 25000;
+      payment.paidAmount = 25000;
+      payment.status = 'paid';
     }
     await payment.save();
 

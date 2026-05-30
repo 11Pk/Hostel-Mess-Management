@@ -242,6 +242,7 @@ function Dashboard() {
       days[day] = {
         breakfast: form.get(`${day}-breakfast`),
         lunch: form.get(`${day}-lunch`),
+        snacks: form.get(`${day}-snacks`),
         dinner: form.get(`${day}-dinner`),
       };
     });
@@ -414,19 +415,150 @@ function Dashboard() {
           )}
 
           {/* STUDENT DASHBOARD TAB */}
-          {activeTab === 'Dashboard' && user?.role === 'student' && (
-            <div className="space-y-6">
-              <h2 className="text-2xl font-bold text-slate-800">Welcome Back!</h2>
-              <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-                <Card title="Today's Attendance status" value={attendance?.statusToday === 'present' ? '✅ Present' : '❌ Absent'} />
-                <Card title="Fee Payment status" value={payment?.status === 'paid' ? '💰 Fully Paid' : '💸 Pending'} />
-                <Card title="Current Mess occupancy" value={crowd} />
-                <Card title="Today's Lunch Menu" value={menu?.days?.[new Date().toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase()]?.lunch || 'No custom items listed'} />
-                <Card title="Total monthly outstanding" value={`₹ ${payment?.totalFees || 0}`} />
-                <Card title="Paid Amount" value={`₹ ${payment?.paidAmount || 0}`} />
+          {activeTab === 'Dashboard' && user?.role === 'student' && (() => {
+            const todayDay = new Date().toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
+            const todayMenu = menu?.days?.[todayDay] || { breakfast: '-', lunch: '-', snacks: '-', dinner: '-' };
+            return (
+              <div className="space-y-8 animate-fadeIn">
+                {/* Modern Hero Greeting */}
+                <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-blue-700 via-indigo-800 to-slate-900 p-8 text-white shadow-lg">
+                  <div className="absolute right-0 top-0 -mr-16 -mt-16 h-48 w-48 rounded-full bg-blue-500/20 blur-3xl"></div>
+                  <div className="absolute bottom-0 right-0 -mb-16 -mr-16 h-48 w-48 rounded-full bg-indigo-500/20 blur-3xl"></div>
+                  <span className="bg-blue-500/30 text-blue-200 border border-blue-400/20 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider">
+                    Student Portal
+                  </span>
+                  <h1 className="text-3xl font-extrabold mt-3 tracking-tight">Welcome Back, {user?.username}! 👋</h1>
+                  <p className="text-blue-100/90 text-sm mt-2 max-w-xl font-medium">
+                    Monitor your daily mess attendance, view today's scheduled meals & snacks, and manage your billing transactions.
+                  </p>
+                </div>
+
+                {/* Premium Metrics Grid */}
+                <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+                  {/* Attendance Card */}
+                  <div className="group relative bg-white border border-slate-200 rounded-2xl p-6 shadow-sm hover:shadow-md transition duration-200 overflow-hidden">
+                    <div className={`absolute top-0 left-0 w-2 h-full ${attendance?.statusToday === 'present' ? 'bg-emerald-500' : 'bg-rose-500'}`}></div>
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Attendance Today</span>
+                        <h3 className="text-2xl font-bold mt-1 text-slate-800">
+                          {attendance?.statusToday === 'present' ? 'Present' : 'Absent'}
+                        </h3>
+                      </div>
+                      <div className={`rounded-xl p-3 ${attendance?.statusToday === 'present' ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>
+                        {attendance?.statusToday === 'present' ? (
+                          <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                        ) : (
+                          <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                        )}
+                      </div>
+                    </div>
+                    <div className="mt-4 flex gap-4 text-xs font-semibold text-slate-500">
+                      <span>Total Present: <strong className="text-slate-800">{attendance?.stats?.totalPresentDays || 0} days</strong></span>
+                      <span>Average: <strong className="text-slate-800">{attendance?.stats?.monthlyAttendancePercent || 0}%</strong></span>
+                    </div>
+                  </div>
+
+                  {/* Mess Crowd Card */}
+                  <div className="group relative bg-white border border-slate-200 rounded-2xl p-6 shadow-sm hover:shadow-md transition duration-200 overflow-hidden">
+                    <div className={`absolute top-0 left-0 w-2 h-full ${crowd === 'High' ? 'bg-red-500' : crowd === 'Medium' ? 'bg-amber-500' : 'bg-emerald-500'}`}></div>
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Mess Occupancy</span>
+                        <h3 className="text-2xl font-bold mt-1 text-slate-800">{crowd || 'Low'}</h3>
+                      </div>
+                      <div className={`rounded-xl p-3 ${crowd === 'High' ? 'bg-red-50 text-red-600' : crowd === 'Medium' ? 'bg-amber-50 text-amber-600' : 'bg-emerald-50 text-emerald-600'}`}>
+                        <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 025.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
+                      </div>
+                    </div>
+                    <p className="mt-4 text-xs text-slate-500 font-medium">
+                      {crowd === 'High' ? '⚠️ High density. Expect queuing times.' : crowd === 'Medium' ? '⚡ Moderate traffic at the counters.' : '✅ Mess is relatively empty. Best time to eat!'}
+                    </p>
+                  </div>
+
+                  {/* Food Budget Remaining Card */}
+                  <div className="group relative bg-white border border-slate-200 rounded-2xl p-6 shadow-sm hover:shadow-md transition duration-200 overflow-hidden">
+                    <div className="absolute top-0 left-0 w-2 h-full bg-indigo-600"></div>
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Food Budget Remaining</span>
+                        <h3 className="text-2xl font-bold mt-1 text-slate-800">₹ {payment?.leftFoodBudget !== undefined ? payment.leftFoodBudget : 15000}</h3>
+                      </div>
+                      <div className="rounded-xl p-3 bg-indigo-50 text-indigo-600">
+                        <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                      </div>
+                    </div>
+                    <div className="mt-4 flex flex-col gap-1.5">
+                      <div className="flex justify-between text-xs font-semibold text-slate-500">
+                        <span>Used: <strong className="text-slate-800 font-bold">₹{payment?.usedFoodBudget || 0}</strong></span>
+                        <span>Total Budget: <strong className="text-slate-800 font-bold">₹15,000</strong></span>
+                      </div>
+                      {/* Simple progress bar */}
+                      <div className="w-full bg-slate-100 rounded-full h-1.5">
+                        <div 
+                          className="h-1.5 rounded-full bg-indigo-600" 
+                          style={{ width: `${Math.min(100, Math.round(((payment?.leftFoodBudget !== undefined ? payment.leftFoodBudget : 15000) / 15000) * 100))}%` }}
+                        ></div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Today's Meals Visual Section */}
+                <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+                  <div className="flex items-center gap-2 mb-6 border-b border-slate-100 pb-3">
+                    <svg className="h-5 w-5 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707m0-12.728l.707.707m12.728 12.728l.707-.707M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                    <h3 className="text-lg font-bold text-slate-800">Today's Menu Schedule</h3>
+                    <span className="ml-auto text-xs bg-slate-100 text-slate-600 font-bold px-2.5 py-1 rounded-full capitalize">
+                      {new Date().toLocaleDateString('en-US', { weekday: 'long' })}
+                    </span>
+                  </div>
+
+                  <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                    {/* Breakfast */}
+                    <div className="rounded-xl border border-slate-100 bg-slate-50/50 p-4 hover:border-blue-300 transition duration-150">
+                      <div className="flex items-center gap-2 mb-2 text-blue-600 font-bold text-xs uppercase tracking-wider">
+                        <span>🌅 Breakfast</span>
+                      </div>
+                      <p className="text-sm font-semibold text-slate-800 capitalize leading-relaxed">
+                        {todayMenu.breakfast || 'Not Scheduled'}
+                      </p>
+                    </div>
+
+                    {/* Lunch */}
+                    <div className="rounded-xl border border-slate-100 bg-slate-50/50 p-4 hover:border-amber-300 transition duration-150">
+                      <div className="flex items-center gap-2 mb-2 text-amber-600 font-bold text-xs uppercase tracking-wider">
+                        <span>☀️ Lunch</span>
+                      </div>
+                      <p className="text-sm font-semibold text-slate-800 capitalize leading-relaxed">
+                        {todayMenu.lunch || 'Not Scheduled'}
+                      </p>
+                    </div>
+
+                    {/* Snacks */}
+                    <div className="rounded-xl border border-slate-100 bg-slate-50/50 p-4 hover:border-emerald-300 transition duration-150">
+                      <div className="flex items-center gap-2 mb-2 text-emerald-600 font-bold text-xs uppercase tracking-wider">
+                        <span>☕ Snacks</span>
+                      </div>
+                      <p className="text-sm font-semibold text-slate-800 capitalize leading-relaxed">
+                        {todayMenu.snacks || 'Not Scheduled'}
+                      </p>
+                    </div>
+
+                    {/* Dinner */}
+                    <div className="rounded-xl border border-slate-100 bg-slate-50/50 p-4 hover:border-purple-300 transition duration-150">
+                      <div className="flex items-center gap-2 mb-2 text-purple-600 font-bold text-xs uppercase tracking-wider">
+                        <span>🌙 Dinner</span>
+                      </div>
+                      <p className="text-sm font-semibold text-slate-800 capitalize leading-relaxed">
+                        {todayMenu.dinner || 'Not Scheduled'}
+                      </p>
+                    </div>
+                  </div>
+                </div>
               </div>
-            </div>
-          )}
+            );
+          })()}
 
           {/* STUDENT QR ATTENDANCE TAB */}
           {activeTab === 'QR Attendance' && user?.role === 'student' && (
@@ -482,6 +614,7 @@ function Dashboard() {
                       <th className="p-4 text-left">Day</th>
                       <th className="p-4 text-left">Breakfast</th>
                       <th className="p-4 text-left">Lunch</th>
+                      <th className="p-4 text-left">Snacks</th>
                       <th className="p-4 text-left">Dinner</th>
                     </tr>
                   </thead>
@@ -491,6 +624,7 @@ function Dashboard() {
                         <td className="p-4 capitalize font-semibold text-slate-700">{day}</td>
                         <td className="p-4 text-slate-600">{menu?.days?.[day]?.breakfast || '-'}</td>
                         <td className="p-4 text-slate-600">{menu?.days?.[day]?.lunch || '-'}</td>
+                        <td className="p-4 text-slate-600">{menu?.days?.[day]?.snacks || '-'}</td>
                         <td className="p-4 text-slate-600">{menu?.days?.[day]?.dinner || '-'}</td>
                       </tr>
                     ))}
@@ -653,21 +787,47 @@ function Dashboard() {
           {activeTab === 'Fees / Payments' && user?.role === 'student' && (
             <div className="space-y-6">
               <div className="grid gap-6 md:grid-cols-3">
-                <Card title="Total Monthly Bill (Incl. Extras)" value={`₹ ${payment?.totalFees || 0}`} />
-                <Card title="Total Paid" value={`₹ ${payment?.paidAmount || 0}`} />
-                <Card title="Billing Status" value={payment?.status === 'paid' ? 'Paid' : 'Pending'} />
+                {/* Semester Payment Card */}
+                <div className="group relative bg-white border border-slate-200 rounded-2xl p-6 shadow-sm hover:shadow-md transition duration-200 overflow-hidden">
+                  <div className="absolute top-0 left-0 w-2 h-full bg-slate-900"></div>
+                  <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Semester Payment</span>
+                  <h3 className="text-3xl font-extrabold mt-1 text-slate-800">₹ 25,000</h3>
+                  <p className="mt-2 text-xs text-slate-500">Labor Service: ₹10,000 | Food Budget: ₹15,000</p>
+                </div>
+                
+                {/* Food Budget Used Card */}
+                <div className="group relative bg-white border border-slate-200 rounded-2xl p-6 shadow-sm hover:shadow-md transition duration-200 overflow-hidden">
+                  <div className="absolute top-0 left-0 w-2 h-full bg-amber-500"></div>
+                  <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Food Budget Used</span>
+                  <h3 className="text-3xl font-extrabold mt-1 text-slate-800">₹ {payment?.usedFoodBudget || 0}</h3>
+                  <p className="mt-2 text-xs text-slate-500">Daily bills scanned and processed so far.</p>
+                </div>
+
+                {/* Remaining Food Budget Card */}
+                <div className="group relative bg-white border border-slate-200 rounded-2xl p-6 shadow-sm hover:shadow-md transition duration-200 overflow-hidden">
+                  <div className="absolute top-0 left-0 w-2 h-full bg-emerald-500"></div>
+                  <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Food Budget Remaining</span>
+                  <h3 className="text-3xl font-extrabold mt-1 text-slate-800">₹ {payment?.leftFoodBudget !== undefined ? payment.leftFoodBudget : 15000}</h3>
+                  <p className="mt-2 text-xs text-emerald-600 font-medium">Left out from ₹15,000 food allocation.</p>
+                </div>
               </div>
-              <div className="flex gap-4">
-                <button className="rounded-lg bg-emerald-600 hover:bg-emerald-700 px-5 py-3 font-bold text-white shadow-md transition duration-150" onClick={handlePayNow}>
-                  Pay Now (Simulate Payment)
-                </button>
+
+              {/* Info alert about the prepaid semester package */}
+              <div className="rounded-xl border border-blue-200 bg-blue-50/50 p-4 text-sm text-blue-800 flex items-center gap-3 shadow-sm">
+                <span className="text-xl">ℹ️</span>
+                <p className="font-medium">
+                  Your **₹25,000 Semester Fee** has been fully paid upfront. Daily mess extras and custom lunch logs deduct directly from your **₹15,000 Food Budget** in real-time.
+                </p>
               </div>
 
               {/* Transactions view inside payments tab for full financial audit trail */}
-              <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 mt-6">
-                <h3 className="font-bold text-slate-800 text-lg mb-4">Detailed Purchases & Billing Logs</h3>
+              <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 mt-6">
+                <div className="flex items-center gap-2 mb-4 border-b border-slate-100 pb-3">
+                  <svg className="h-5 w-5 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" /></svg>
+                  <h3 className="font-bold text-slate-800 text-lg">Detailed Purchases & Billing Logs</h3>
+                </div>
                 {studentTransactions.length === 0 ? (
-                  <p className="text-sm text-slate-500 py-4">No extras or purchases billed yet.</p>
+                  <p className="text-sm text-slate-500 py-6 text-center">No extras or purchases billed yet.</p>
                 ) : (
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm">
@@ -681,16 +841,24 @@ function Dashboard() {
                       <tbody className="divide-y divide-slate-100">
                         {studentTransactions.map(trans => (
                           <tr key={trans._id} className="hover:bg-slate-50/50">
-                            <td className="p-4 text-slate-600">{trans.date}</td>
-                            <td className="p-4 text-slate-800 capitalize font-medium">
+                            <td className="p-4 text-slate-600 font-medium">{trans.date}</td>
+                            <td className="p-4 text-slate-800 capitalize font-semibold">
                               Purchased Extras: {trans.items.map(i => i.name).join(', ')}
                             </td>
-                            <td className="p-4 text-right font-bold text-red-600">+ ₹{trans.totalAmount}</td>
+                            <td className="p-4 text-right font-extrabold text-red-600">+ ₹{trans.totalAmount}</td>
                           </tr>
                         ))}
-                        <tr className="bg-slate-50 font-bold border-t-2 border-slate-200">
-                          <td className="p-4 text-slate-800" colSpan={2}>Base Mess Charge + Extras Combined Balance</td>
-                          <td className="p-4 text-right text-slate-900">₹{payment?.totalFees || 0}</td>
+                        <tr className="bg-slate-50 font-bold border-t border-slate-200 text-slate-700">
+                          <td className="p-4" colSpan={2}>Semester Payment (Fully Paid Upfront)</td>
+                          <td className="p-4 text-right text-emerald-600">₹25,000</td>
+                        </tr>
+                        <tr className="bg-slate-50 font-bold border-t border-slate-200 text-slate-700">
+                          <td className="p-4" colSpan={2}>Daily Food Budget Used</td>
+                          <td className="p-4 text-right text-red-600">₹{payment?.usedFoodBudget || 0}</td>
+                        </tr>
+                        <tr className="bg-slate-100/50 font-extrabold border-t-2 border-slate-300 text-slate-900">
+                          <td className="p-4 text-indigo-700" colSpan={2}>Remaining Food Budget Balance (Left Out)</td>
+                          <td className="p-4 text-right text-indigo-700 text-base">₹{payment?.leftFoodBudget !== undefined ? payment.leftFoodBudget : 15000}</td>
                         </tr>
                       </tbody>
                     </table>
@@ -975,40 +1143,29 @@ function Dashboard() {
           {/* ADMIN PAYMENTS MANAGER TAB */}
           {activeTab === 'Payments' && user?.role === 'admin' && (
             <div className="space-y-6">
-              <h2 className="text-2xl font-bold text-slate-800">Student Monthly Bills</h2>
+              <h2 className="text-2xl font-bold text-slate-800">Student Semester & Food Bills</h2>
               <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200">
                       <th className="p-4 text-left">Student Name</th>
-                      <th className="p-4 text-left">Charged Amount</th>
+                      <th className="p-4 text-left">Semester Payment</th>
+                      <th className="p-4 text-left">Food Budget (Used / Left)</th>
                       <th className="p-4 text-left">Status</th>
-                      <th className="p-4 text-left">Action</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {paymentList.map((p, idx) => (
                       <tr key={idx} className="hover:bg-slate-50/50">
                         <td className="p-4 text-slate-800 font-medium">{p.student?.username}</td>
-                        <td className="p-4 font-semibold text-slate-700">₹{p.paidAmount} / ₹{p.totalFees}</td>
-                        <td className="p-4">
-                          <span className={`px-2 py-0.5 rounded text-xs font-semibold uppercase ${p.status === 'paid' ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-amber-50 text-amber-700 border border-amber-200'}`}>
-                            {p.status}
-                          </span>
+                        <td className="p-4 font-semibold text-slate-700">₹25,000</td>
+                        <td className="p-4 text-slate-600">
+                          Used: <strong className="text-red-600">₹{p.usedFoodBudget || 0}</strong> / Left: <strong className="text-indigo-600">₹{p.leftFoodBudget !== undefined ? p.leftFoodBudget : 15000}</strong>
                         </td>
                         <td className="p-4">
-                          {p.status === 'pending' ? (
-                            <button 
-                              onClick={() => safeCall(async () => { 
-                                await paymentAPI.markPaid(token, p.student._id); 
-                                const refreshed = await paymentAPI.list(token); 
-                                setPaymentList(refreshed.payments); 
-                              })} 
-                              className="rounded bg-emerald-600 hover:bg-emerald-700 px-3 py-1 text-xs font-bold text-white shadow transition"
-                            >
-                              Mark Settled
-                            </button>
-                          ) : '-'}
+                          <span className="px-2.5 py-0.5 rounded text-xs font-semibold bg-green-50 text-green-700 border border-green-200 uppercase">
+                            Prepaid
+                          </span>
                         </td>
                       </tr>
                     ))}
@@ -1050,10 +1207,11 @@ function Dashboard() {
               <form className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 space-y-4" onSubmit={saveMenu}>
                 <h3 className="font-bold text-slate-800 text-lg border-b pb-2">Edit Weekly Scheduled Menu</h3>
                 {dayLabels.map((day) => (
-                  <div key={day} className="grid grid-cols-1 md:grid-cols-4 gap-3 items-center">
+                  <div key={day} className="grid grid-cols-1 md:grid-cols-5 gap-3 items-center">
                     <span className="text-sm font-semibold capitalize text-slate-700">{day}</span>
                     <input name={`${day}-breakfast`} defaultValue={menu?.days?.[day]?.breakfast || ''} placeholder="Breakfast" className="rounded-lg border border-slate-300 p-2 text-sm focus:ring-blue-500 focus:border-blue-500" />
                     <input name={`${day}-lunch`} defaultValue={menu?.days?.[day]?.lunch || ''} placeholder="Lunch" className="rounded-lg border border-slate-300 p-2 text-sm focus:ring-blue-500 focus:border-blue-500" />
+                    <input name={`${day}-snacks`} defaultValue={menu?.days?.[day]?.snacks || ''} placeholder="Snacks" className="rounded-lg border border-slate-300 p-2 text-sm focus:ring-blue-500 focus:border-blue-500" />
                     <input name={`${day}-dinner`} defaultValue={menu?.days?.[day]?.dinner || ''} placeholder="Dinner" className="rounded-lg border border-slate-300 p-2 text-sm focus:ring-blue-500 focus:border-blue-500" />
                   </div>
                 ))}

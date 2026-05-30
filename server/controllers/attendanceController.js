@@ -55,7 +55,35 @@ const getQrForToday = async (req, res, next) => {
 const listByDate = async (req, res, next) => {
   try {
     const date = req.query.date || today();
-    const items = await Attendance.find({ date }).populate('student', 'username email');
+    
+    // Fetch all active students
+    const User = require('../models/User');
+    const students = await User.find({ role: 'student', isActive: true }).select('username email');
+    
+    // Fetch existing attendance records for this date
+    const existingAttendance = await Attendance.find({ date }).populate('student', 'username email');
+    const existingMap = new Map(
+      existingAttendance
+        .filter(item => item.student)
+        .map(item => [String(item.student._id || item.student), item])
+    );
+    
+    // Map each student to their existing attendance record, or a virtual 'absent' placeholder
+    const items = students.map(student => {
+      const existing = existingMap.get(String(student._id));
+      if (existing) {
+        return existing;
+      } else {
+        return {
+          _id: `temp-${student._id}`,
+          student,
+          date,
+          status: 'absent',
+          source: 'none'
+        };
+      }
+    });
+
     res.json({ success: true, date, items });
   } catch (error) {
     next(error);
