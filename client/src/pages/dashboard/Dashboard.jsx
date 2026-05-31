@@ -50,6 +50,7 @@ function Dashboard() {
   const navigate = useNavigate();
   const { user, token, logout } = useAuth();
   const [activeTab, setActiveTab] = useState('Dashboard');
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   
@@ -410,57 +411,93 @@ function Dashboard() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 font-sans">
-      <div className="flex">
-        {/* Sidebar Nav */}
-        <aside className="min-h-screen w-64 bg-slate-900 p-4 text-white shadow-xl flex flex-col justify-between">
-          <div>
-            <div className="flex items-center gap-2 mb-6">
+    <div className="min-h-screen bg-slate-50 font-sans flex flex-col lg:flex-row">
+      {/* Mobile Sticky Header */}
+      <header className="lg:hidden bg-slate-900 text-white p-4 flex items-center justify-between shadow-md z-40 sticky top-0">
+        <div className="flex items-center gap-2">
+          <span className="text-xl font-bold tracking-wider text-blue-500">HMMS</span>
+          <span className="bg-blue-600/20 text-blue-400 border border-blue-500/20 px-1.5 py-0.5 rounded text-[8px] uppercase font-bold tracking-widest">Portal</span>
+        </div>
+        <button 
+          onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+          className="p-2 rounded-lg bg-slate-800 text-white hover:bg-slate-700 transition"
+          aria-label="Toggle Menu"
+        >
+          {isSidebarOpen ? (
+            <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+          ) : (
+            <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" /></svg>
+          )}
+        </button>
+      </header>
+
+      {/* Mobile Drawer Overlay Backdrop */}
+      {isSidebarOpen && (
+        <div 
+          onClick={() => setIsSidebarOpen(false)}
+          className="fixed inset-0 z-40 bg-slate-900/60 backdrop-blur-sm lg:hidden transition-opacity duration-300"
+        />
+      )}
+
+      {/* Sidebar Nav Drawer */}
+      <aside className={`min-h-screen w-64 bg-slate-900 p-4 text-white shadow-xl flex flex-col justify-between fixed lg:static inset-y-0 left-0 z-50 transform transition-transform duration-300 ease-in-out ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} lg:translate-x-0 flex-shrink-0`}>
+        <div>
+          <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center gap-2">
               <span className="text-2xl font-bold tracking-wider text-blue-500">HMMS</span>
               <span className="bg-blue-600/20 text-blue-400 border border-blue-500/20 px-2 py-0.5 rounded text-[10px] uppercase font-bold tracking-widest">Portal</span>
             </div>
-            
-            <div className="mb-6 rounded-lg bg-slate-800/40 border border-slate-700/50 p-3">
-              <p className="text-xs text-slate-400 font-medium">Logged in as</p>
-              <h3 className="text-sm font-semibold mt-0.5 text-white truncate">{user?.username}</h3>
-              <span className="inline-block mt-1 bg-slate-700 text-slate-300 font-semibold px-2 py-0.5 rounded-full text-[10px] uppercase tracking-wider">
-                {user?.role}
-              </span>
-            </div>
-
-            <div className="space-y-1">
-              {tabs.map((tab) => (
-                <button 
-                  key={tab} 
-                  onClick={() => {
-                    setActiveTab(tab);
-                    // Refresh data on tab navigation
-                    if (token) {
-                      if (user?.role === 'admin') loadAdmin();
-                      else loadStudent();
-                    }
-                  }} 
-                  className={`w-full rounded-lg px-3 py-2.5 text-left text-sm font-medium transition duration-150 flex items-center gap-3 ${activeTab === tab ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
-                >
-                  {tab}
-                </button>
-              ))}
-            </div>
+            {/* Close Button inside Sidebar on Mobile */}
+            <button 
+              onClick={() => setIsSidebarOpen(false)}
+              className="lg:hidden p-1.5 rounded-lg bg-slate-800 text-slate-400 hover:text-white hover:bg-slate-700 transition"
+            >
+              <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+            </button>
           </div>
           
-          <button 
-            onClick={handleLogout} 
-            className="w-full rounded-lg bg-slate-800 hover:bg-red-700 hover:text-white px-3 py-2.5 text-sm font-medium transition duration-150 flex items-center justify-center gap-2"
-          >
-            Logout
-          </button>
-        </aside>
+          <div className="mb-6 rounded-lg bg-slate-800/40 border border-slate-700/50 p-3">
+            <p className="text-xs text-slate-400 font-medium">Logged in as</p>
+            <h3 className="text-sm font-semibold mt-0.5 text-white truncate">{user?.username}</h3>
+            <span className="inline-block mt-1 bg-slate-700 text-slate-300 font-semibold px-2 py-0.5 rounded-full text-[10px] uppercase tracking-wider">
+              {user?.role}
+            </span>
+          </div>
 
-        {/* Main Panel */}
-        <main className="flex-1 p-8 max-w-7xl mx-auto w-full">
+          <div className="space-y-1">
+            {tabs.map((tab) => (
+              <button 
+                key={tab} 
+                onClick={() => {
+                  setActiveTab(tab);
+                  setIsSidebarOpen(false); // Auto-close drawer on mobile selection
+                  // Refresh data on tab navigation
+                  if (token) {
+                    if (user?.role === 'admin') loadAdmin();
+                    else loadStudent();
+                  }
+                }} 
+                className={`w-full rounded-lg px-3 py-2.5 text-left text-sm font-medium transition duration-150 flex items-center gap-3 ${activeTab === tab ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+              >
+                {tab}
+              </button>
+            ))}
+          </div>
+        </div>
+        
+        <button 
+          onClick={handleLogout} 
+          className="w-full rounded-lg bg-slate-800 hover:bg-red-700 hover:text-white px-3 py-2.5 text-sm font-medium transition duration-150 flex items-center justify-center gap-2"
+        >
+          Logout
+        </button>
+      </aside>
+
+      {/* Main Content Viewport */}
+      <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto w-full overflow-hidden">
           {error && (
             <div className="mb-6 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700 flex items-center gap-2 shadow-sm animate-pulse">
-              <span>⚠️ Error:</span> {error}
+              <span>Error:</span> {error}
             </div>
           )}
           {loading && (
@@ -483,7 +520,7 @@ function Dashboard() {
                   <span className="bg-blue-500/30 text-blue-200 border border-blue-400/20 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider">
                     Student Portal
                   </span>
-                  <h1 className="text-3xl font-extrabold mt-3 tracking-tight">Welcome Back, {user?.username}! 👋</h1>
+                  <h1 className="text-3xl font-extrabold mt-3 tracking-tight">Welcome Back, {user?.username}!</h1>
                   <p className="text-blue-100/90 text-sm mt-2 max-w-xl font-medium">
                     Monitor your daily mess attendance, view today's scheduled meals & snacks, and manage your billing transactions.
                   </p>
@@ -528,7 +565,7 @@ function Dashboard() {
                       </div>
                     </div>
                     <p className="mt-4 text-xs text-slate-500 font-medium">
-                      {crowd === 'High' ? '⚠️ High density. Expect queuing times.' : crowd === 'Medium' ? '⚡ Moderate traffic at the counters.' : '✅ Mess is relatively empty. Best time to eat!'}
+                      {crowd === 'High' ? 'High density. Expect queuing times.' : crowd === 'Medium' ? 'Moderate traffic at the counters.' : 'Mess is relatively empty. Best time to eat!'}
                     </p>
                   </div>
 
@@ -574,7 +611,7 @@ function Dashboard() {
                     {/* Breakfast */}
                     <div className="rounded-xl border border-slate-100 bg-slate-50/50 p-4 hover:border-blue-300 transition duration-150">
                       <div className="flex items-center gap-2 mb-2 text-blue-600 font-bold text-xs uppercase tracking-wider">
-                        <span>🌅 Breakfast</span>
+                        <span>Breakfast</span>
                       </div>
                       <p className="text-sm font-semibold text-slate-800 capitalize leading-relaxed">
                         {todayMenu.breakfast || 'Not Scheduled'}
@@ -584,7 +621,7 @@ function Dashboard() {
                     {/* Lunch */}
                     <div className="rounded-xl border border-slate-100 bg-slate-50/50 p-4 hover:border-amber-300 transition duration-150">
                       <div className="flex items-center gap-2 mb-2 text-amber-600 font-bold text-xs uppercase tracking-wider">
-                        <span>☀️ Lunch</span>
+                        <span>Lunch</span>
                       </div>
                       <p className="text-sm font-semibold text-slate-800 capitalize leading-relaxed">
                         {todayMenu.lunch || 'Not Scheduled'}
@@ -594,7 +631,7 @@ function Dashboard() {
                     {/* Snacks */}
                     <div className="rounded-xl border border-slate-100 bg-slate-50/50 p-4 hover:border-emerald-300 transition duration-150">
                       <div className="flex items-center gap-2 mb-2 text-emerald-600 font-bold text-xs uppercase tracking-wider">
-                        <span>☕ Snacks</span>
+                        <span>Snacks</span>
                       </div>
                       <p className="text-sm font-semibold text-slate-800 capitalize leading-relaxed">
                         {todayMenu.snacks || 'Not Scheduled'}
@@ -604,7 +641,7 @@ function Dashboard() {
                     {/* Dinner */}
                     <div className="rounded-xl border border-slate-100 bg-slate-50/50 p-4 hover:border-purple-300 transition duration-150">
                       <div className="flex items-center gap-2 mb-2 text-purple-600 font-bold text-xs uppercase tracking-wider">
-                        <span>🌙 Dinner</span>
+                        <span>Dinner</span>
                       </div>
                       <p className="text-sm font-semibold text-slate-800 capitalize leading-relaxed">
                         {todayMenu.dinner || 'Not Scheduled'}
@@ -632,7 +669,7 @@ function Dashboard() {
                 <Card title="Total Present days" value={attendance?.stats?.totalPresentDays || 0} />
                 <Card title="Monthly average %" value={`${attendance?.stats?.monthlyAttendancePercent || 0}%`} />
               </div>
-              <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+              <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200">
@@ -663,7 +700,7 @@ function Dashboard() {
           {activeTab === 'Weekly Menu' && (
             <div className="space-y-6">
               <h2 className="text-2xl font-bold text-slate-800">Weekly Scheduled Menu</h2>
-              <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+              <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200">
@@ -870,7 +907,7 @@ function Dashboard() {
 
               {/* Info alert about the prepaid semester package */}
               <div className="rounded-xl border border-blue-200 bg-blue-50/50 p-4 text-sm text-blue-800 flex items-center gap-3 shadow-sm">
-                <span className="text-xl">ℹ️</span>
+                <span className="text-xl font-bold">Info:</span>
                 <p className="font-medium">
                   Your **₹25,000 Semester Fee** has been fully paid upfront. Daily mess extras and custom lunch logs deduct directly from your **₹15,000 Food Budget** in real-time.
                 </p>
@@ -933,7 +970,7 @@ function Dashboard() {
                 <textarea className="mb-4 w-full rounded-lg border border-slate-300 p-2.5 text-sm focus:ring-blue-500 focus:border-blue-500" name="message" placeholder="Describe your concern or feedback in detail" rows={4} required />
                 <button className="w-full rounded-lg bg-blue-600 hover:bg-blue-700 py-2.5 font-bold text-white shadow transition">Submit</button>
               </form>
-              <div className="bg-white rounded-xl border border-slate-200 shadow-sm md:col-span-2 overflow-hidden">
+              <div className="bg-white rounded-xl border border-slate-200 shadow-sm md:col-span-2 overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200">
@@ -969,7 +1006,7 @@ function Dashboard() {
                   Load Records
                 </button>
               </div>
-              <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+              <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200">
@@ -1027,7 +1064,7 @@ function Dashboard() {
               </form>
 
               {/* Items listing with toggle availability */}
-              <div className="bg-white rounded-xl border border-slate-200 shadow-sm md:col-span-2 p-6">
+              <div className="bg-white rounded-xl border border-slate-200 shadow-sm md:col-span-2 p-4 sm:p-6 min-w-0 overflow-hidden">
                 <h3 className="font-bold text-slate-800 text-lg mb-4">Today's Listed Items & Stock</h3>
                 {dailyItems.length === 0 ? (
                   <p className="text-sm text-slate-500 text-center py-8">No daily items listed. Add items to publish to student profiles.</p>
@@ -1094,7 +1131,7 @@ function Dashboard() {
                 <span className="bg-indigo-500/30 text-indigo-200 border border-indigo-400/20 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider">
                   Billing Terminal
                 </span>
-                <h1 className="text-2xl font-extrabold mt-3 tracking-tight">Mess QR Billing Terminal 📱</h1>
+                <h1 className="text-2xl font-extrabold mt-3 tracking-tight">Mess QR Billing Terminal</h1>
                 <p className="text-slate-300 text-sm mt-2 max-w-xl">
                   Scan student purchase QR codes using your device camera to instantly charge their food budgets and record transactions.
                 </p>
@@ -1106,7 +1143,7 @@ function Dashboard() {
                   {/* Scanner Camera Card */}
                   <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 flex flex-col items-center relative overflow-hidden">
                     <h3 className="font-bold text-slate-800 text-base self-start mb-4 flex items-center gap-2">
-                      <span className="text-blue-500 text-xl">📷</span> Live Scanner Camera
+                      <span className="text-blue-500 text-xl font-bold">POS</span> Live Scanner Camera
                     </h3>
                     {isScanning ? (
                       <div className="w-full">
@@ -1115,7 +1152,7 @@ function Dashboard() {
                           onClick={() => setIsScanning(false)}
                           className="mt-4 w-full rounded-xl bg-rose-600 hover:bg-rose-700 py-2.5 font-bold text-white shadow transition text-sm flex items-center justify-center gap-2"
                         >
-                          ⏹️ Stop Camera
+                          Stop Camera
                         </button>
                       </div>
                     ) : (
@@ -1127,7 +1164,7 @@ function Dashboard() {
                           }}
                           className="inline-flex items-center gap-2 rounded-xl bg-blue-600 hover:bg-blue-700 px-6 py-3 font-bold text-white shadow-md transition duration-150 text-base"
                         >
-                          📷 Open Scanner Camera
+                          Open Scanner Camera
                         </button>
                         <div className="relative w-full max-w-[220px]">
                           <input 
@@ -1137,7 +1174,7 @@ function Dashboard() {
                             className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
                           />
                           <button className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-slate-100 hover:bg-slate-200 px-5 py-2.5 font-bold text-slate-700 transition text-sm">
-                            📤 Upload QR Screenshot
+                            Upload QR Screenshot
                           </button>
                         </div>
                         <p className="text-xs text-slate-400 mt-2 leading-relaxed max-w-[250px] mx-auto font-medium">
@@ -1150,7 +1187,7 @@ function Dashboard() {
                   {/* Fallback Paste Input Card */}
                   <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-3">
                     <h3 className="font-bold text-slate-800 text-sm flex items-center gap-2">
-                      <span className="text-amber-500">⚡</span> Offline / Clipboard Fallback
+                      <span className="text-amber-500 font-bold">Manual</span> Offline / Clipboard Fallback
                     </h3>
                     <p className="text-xs text-slate-500 leading-relaxed">
                       If camera access is blocked or unavailable on this device, paste the raw JSON invoice string generated by the student below:
@@ -1220,7 +1257,7 @@ function Dashboard() {
                           onClick={handleConfirmTransaction}
                           className="flex-1 rounded-xl bg-emerald-600 hover:bg-emerald-700 py-3 text-center font-bold text-sm text-white shadow-md transition duration-150 flex items-center justify-center gap-1.5"
                         >
-                          ✅ Confirm & Charge Student
+                          Confirm & Charge Student
                         </button>
                         <button 
                           onClick={() => setScannedTransactionData(null)}
@@ -1232,7 +1269,7 @@ function Dashboard() {
                     </div>
                   ) : (
                     <div className="bg-slate-50 border border-dashed border-slate-300 rounded-2xl p-8 text-center flex flex-col items-center justify-center min-h-[220px]">
-                      <span className="text-4xl">🧾</span>
+                      <span className="text-4xl font-bold text-slate-300">#</span>
                       <h4 className="font-bold text-slate-700 text-sm mt-3">Invoice Details Pending</h4>
                       <p className="text-xs text-slate-400 max-w-[280px] mt-1.5 leading-relaxed">
                         Open the scanner above or paste a student payload to view detailed invoice items here for approval.
@@ -1254,7 +1291,7 @@ function Dashboard() {
 
                     {adminTransactions.length === 0 ? (
                       <div className="text-center py-8">
-                        <span className="text-3xl">📭</span>
+                        <span className="text-3xl font-bold text-slate-300">-</span>
                         <p className="text-xs text-slate-400 mt-2 font-medium">You haven't scanned or billed any student invoices today.</p>
                       </div>
                     ) : (
@@ -1296,7 +1333,7 @@ function Dashboard() {
           {activeTab === 'Payments' && user?.role === 'admin' && (
             <div className="space-y-6">
               <h2 className="text-2xl font-bold text-slate-800">Student Semester & Food Bills</h2>
-              <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+              <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200">
@@ -1410,7 +1447,7 @@ function Dashboard() {
                   Update Stock
                 </button>
               </form>
-              <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+              <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200">
@@ -1435,7 +1472,7 @@ function Dashboard() {
 
           {/* ADMIN FEEDBACK RESOLUTION TAB */}
           {activeTab === 'Feedback Management' && user?.role === 'admin' && (
-            <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+            <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200">
@@ -1483,7 +1520,6 @@ function Dashboard() {
             </div>
           )}
         </main>
-      </div>
 
       {/* ATTENDANCE QR CODE MODAL */}
       {showQrModal && (
@@ -1526,7 +1562,7 @@ function Dashboard() {
             <div className="mt-2 bg-slate-50 border rounded-lg p-2.5 font-mono text-[9px] text-slate-600 overflow-x-auto select-all max-h-24">
               {JSON.stringify(purchaseQrPayload)}
             </div>
-            <p className="text-[9px] text-center text-slate-400 mt-1 mb-4 select-none">💡 TIP: Triple-click above box to copy QR code text for testing paste fallback.</p>
+            <p className="text-[9px] text-center text-slate-400 mt-1 mb-4 select-none">TIP: Triple-click above box to copy QR code text for testing paste fallback.</p>
 
             <button 
               className="w-full rounded-xl bg-slate-900 hover:bg-slate-800 py-3 font-semibold text-white transition shadow" 
