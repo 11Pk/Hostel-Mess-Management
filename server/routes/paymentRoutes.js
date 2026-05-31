@@ -1,7 +1,7 @@
 const express = require('express');
 const { protect, authorize } = require('../middleware/authMiddleware');
 const { getMyPayment, payNow, listPayments, markPaidByAdmin } = require('../controllers/paymentController');
-const { processScan, getStudentTransactions } = require('../controllers/transactionController');
+const { processScan, getStudentTransactions, getAdminTransactions } = require('../controllers/transactionController');
 
 const router = express.Router();
 
@@ -14,5 +14,6 @@ router.post('/mark-paid', authorize('admin'), markPaidByAdmin);
 // Scanning & Purchase Billing
 router.post('/scan-transaction', authorize('admin'), processScan);
 router.get('/transactions/me', authorize('student'), getStudentTransactions);
+router.get('/transactions/admin', authorize('admin'), getAdminTransactions);
 
 module.exports = router;

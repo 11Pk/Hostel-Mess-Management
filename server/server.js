@@ -17,7 +17,10 @@ const errorHandler = require('./middleware/errorHandler');
 const app = express();
 
 // ─── Database ──────────────────────────────────────────────────────────────
-connectDB();
+connectDB().then(() => {
+  const seedMenuAndDailyItems = require('./utils/seeder');
+  seedMenuAndDailyItems().catch(err => console.error('❌ Seeding failed on startup:', err));
+});
 
 // ─── Rate limiter (auth endpoints only) ────────────────────────────────────
 const authLimiter = rateLimit({
@@ -29,19 +32,12 @@ const authLimiter = rateLimit({
 });
 
 // ─── Middleware ─────────────────────────────────────────────────────────────
-const allowedOrigins = [
-  'http://localhost:5173',
-  'http://localhost:5174',
-  'http://localhost:5175',
-  'http://127.0.0.1:5173',
-  'http://127.0.0.1:5174',
-  'http://127.0.0.1:5175',
-];
+const localIpPattern = /^https?:\/\/(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[0-1])\.\d+\.\d+)(:\d+)?$/;
 
 app.use(cors({
   origin: (origin, callback) => {
     if (!origin) return callback(null, true);
-    if (allowedOrigins.includes(origin) || origin.startsWith('http://localhost:')) {
+    if (localIpPattern.test(origin)) {
       return callback(null, true);
     }
     return callback(new Error('CORS policy mismatch.'));

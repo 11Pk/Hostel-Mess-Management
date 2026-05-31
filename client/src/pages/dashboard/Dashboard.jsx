@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { QRCodeCanvas } from 'qrcode.react';
-import { Html5QrcodeScanner } from 'html5-qrcode';
+import { Html5Qrcode } from 'html5-qrcode';
 import { useAuth } from '../../context/AuthContext';
 import { 
   adminAPI, 
@@ -75,6 +75,7 @@ function Dashboard() {
   const [dailyItems, setDailyItems] = useState([]);
   const [selectedDailyItems, setSelectedDailyItems] = useState({});
   const [studentTransactions, setStudentTransactions] = useState([]);
+  const [adminTransactions, setAdminTransactions] = useState([]);
   const [scanPayloadInput, setScanPayloadInput] = useState('');
   const [isScanning, setIsScanning] = useState(false);
   const [scannedTransactionData, setScannedTransactionData] = useState(null);
@@ -121,13 +122,17 @@ function Dashboard() {
   };
 
   const loadAdmin = async () => {
-    const [overviewRes, paymentRes, feedRes, invRes, suggRes, dailyRes] = await Promise.all([
+    const [overviewRes, paymentRes, feedRes, invRes, suggRes, dailyRes, adminTransRes] = await Promise.all([
       adminAPI.overview(token),
       paymentAPI.list(token),
       feedbackAPI.list(token),
       inventoryAPI.list(token),
       menuAPI.suggestions(token),
-      menuAPI.getDailyItems(token)
+      menuAPI.getDailyItems(token),
+      paymentAPI.getAdminTransactions(token).catch(err => {
+        console.error("Error loading admin transactions", err);
+        return { transactions: [] };
+      })
     ]);
     setAdminOverview(overviewRes.overview);
     setPaymentList(paymentRes.payments);
@@ -135,6 +140,7 @@ function Dashboard() {
     setInventory(invRes.items);
     setSuggestions(suggRes.suggestions);
     setDailyItems(dailyRes.items || []);
+    setAdminTransactions(adminTransRes.transactions || []);
   };
 
   useEffect(() => {
@@ -146,23 +152,24 @@ function Dashboard() {
     });
   }, [token, user?.role]);
 
-  // Live Camera Scanner Setup
+  // Live Camera Scanner Setup using raw Html5Qrcode for full mobile support
   useEffect(() => {
-    let html5QrcodeScanner;
+    let html5QrCode;
+    
     if (activeTab === 'QR Scanner Billing' && isScanning) {
-      html5QrcodeScanner = new Html5QrcodeScanner(
-        "qr-reader",
-        { fps: 10, qrbox: { width: 250, height: 250 } },
-        /* verbose= */ false
-      );
+      html5QrCode = new Html5Qrcode("qr-reader");
 
-      const onScanSuccess = (decodedText) => {
+      const onScanSuccess = async (decodedText) => {
         try {
           const data = JSON.parse(decodedText);
           if (data.type === "mess-billing") {
             setScannedTransactionData(data);
             setIsScanning(false);
-            html5QrcodeScanner.clear();
+            try {
+              await html5QrCode.stop();
+            } catch (stopErr) {
+              console.error("Error stopping qr scanner", stopErr);
+            }
           } else {
             alert("Invalid QR Code category. Must be a purchase invoice.");
           }
@@ -175,12 +182,34 @@ function Dashboard() {
         // Quiet failure to keep continuous listening
       };
 
-      html5QrcodeScanner.render(onScanSuccess, onScanFailure);
+      html5QrCode.start(
+        { facingMode: "environment" }, // Forces mobile rear camera!
+        {
+          fps: 15,
+          qrbox: (width, height) => {
+            const size = Math.min(width, height) * 0.7;
+            return { width: size, height: size };
+          },
+          aspectRatio: 1.0
+        },
+        onScanSuccess,
+        onScanFailure
+      ).catch(err => {
+        console.error("Failed to start camera", err);
+        setError("Camera permission denied or camera not available. Make sure you accepted permissions and are using HTTPS.");
+        setIsScanning(false);
+      });
     }
 
     return () => {
-      if (html5QrcodeScanner) {
-        html5QrcodeScanner.clear().catch(err => console.error("Error clearing scanner", err));
+      if (html5QrCode) {
+        try {
+          if (html5QrCode.isScanning) {
+            html5QrCode.stop().catch(err => console.error("Error stopping scanner on unmount", err));
+          }
+        } catch (e) {
+          console.error("Error checking scanner state on unmount", e);
+        }
       }
     };
   }, [activeTab, isScanning]);
@@ -188,6 +217,29 @@ function Dashboard() {
   const handleLogout = () => {
     logout();
     navigate('/auth');
+  };
+
+  const handleFileUpload = (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    const html5QrCode = new Html5Qrcode("qr-reader-temp");
+    
+    safeCall(async () => {
+      try {
+        const decodedText = await html5QrCode.scanFile(file, true);
+        const data = JSON.parse(decodedText);
+        if (data.type === "mess-billing") {
+          setScannedTransactionData(data);
+          setError("");
+        } else {
+          setError("Invalid QR Code category. Must be a purchase invoice.");
+        }
+      } catch (err) {
+        console.error("File upload scanning error", err);
+        setError("Could not find a valid QR Code in the uploaded image. Please ensure the QR is clear, well-lit, and in focus.");
+      }
+    });
   };
 
   const handlePayNow = () => safeCall(async () => {
@@ -346,10 +398,14 @@ function Dashboard() {
       setScanPayloadInput('');
       
       // Reload admin reports/payments state
-      const overviewRes = await adminAPI.overview(token);
+      const [overviewRes, paymentsRes, adminTransRes] = await Promise.all([
+        adminAPI.overview(token),
+        paymentAPI.list(token),
+        paymentAPI.getAdminTransactions(token).catch(() => ({ transactions: [] }))
+      ]);
       setAdminOverview(overviewRes.overview);
-      const paymentsRes = await paymentAPI.list(token);
       setPaymentList(paymentsRes.payments);
+      setAdminTransactions(adminTransRes.transactions || []);
     });
   };
 
@@ -1032,110 +1088,206 @@ function Dashboard() {
 
           {/* STAFF CAMERA QR CODE SCANNER BILLING TAB (ADMIN) */}
           {activeTab === 'QR Scanner Billing' && user?.role === 'admin' && (
-            <div className="space-y-8 max-w-xl mx-auto">
-              <div className="text-center">
-                <h2 className="text-2xl font-bold text-slate-800">Mess QR Billing Terminal</h2>
-                <p className="text-slate-500 mt-1">Scan student purchase QR codes to review selections and update billing.</p>
+            <div className="space-y-8 animate-fadeIn">
+              <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-slate-800 via-slate-900 to-indigo-950 p-6 text-white shadow-lg">
+                <div className="absolute right-0 top-0 -mr-16 -mt-16 h-48 w-48 rounded-full bg-indigo-500/20 blur-3xl"></div>
+                <span className="bg-indigo-500/30 text-indigo-200 border border-indigo-400/20 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider">
+                  Billing Terminal
+                </span>
+                <h1 className="text-2xl font-extrabold mt-3 tracking-tight">Mess QR Billing Terminal 📱</h1>
+                <p className="text-slate-300 text-sm mt-2 max-w-xl">
+                  Scan student purchase QR codes using your device camera to instantly charge their food budgets and record transactions.
+                </p>
               </div>
 
-              {/* Scanning details / camera rendering */}
-              <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 flex flex-col items-center">
-                {isScanning ? (
-                  <div className="w-full max-w-md">
-                    <div id="qr-reader" className="overflow-hidden rounded-xl border-2 border-dashed border-slate-300 p-2 bg-slate-50"></div>
-                    <button 
-                      onClick={() => setIsScanning(false)}
-                      className="mt-4 w-full rounded-lg bg-red-600 hover:bg-red-700 py-2.5 font-bold text-white shadow transition"
-                    >
-                      Cancel Camera Scanning
-                    </button>
-                  </div>
-                ) : (
-                  <button 
-                    onClick={() => {
-                      setScannedTransactionData(null);
-                      setIsScanning(true);
-                    }}
-                    className="flex items-center gap-2 rounded-xl bg-blue-600 hover:bg-blue-700 px-6 py-3 font-bold text-white shadow-md transition duration-150 text-base"
-                  >
-                    📷 Open Scanner Camera
-                  </button>
-                )}
-              </div>
-
-              {/* Verified results confirmation screen */}
-              {scannedTransactionData && (
-                <div className="bg-slate-900 text-white rounded-xl shadow-xl p-6 space-y-4 animate-fadeIn">
-                  <div className="border-b border-slate-800 pb-3 flex justify-between items-center">
-                    <div>
-                      <h3 className="font-bold text-lg text-blue-400">Verified Invoice</h3>
-                      <p className="text-xs text-slate-400 mt-0.5">Student: {scannedTransactionData.username}</p>
-                    </div>
-                    <span className="bg-green-600/20 text-green-400 border border-green-500/20 px-2 py-0.5 rounded text-[10px] uppercase font-bold tracking-widest">
-                      Ready to Bill
-                    </span>
-                  </div>
-
-                  <div className="space-y-2">
-                    <h4 className="text-xs text-slate-400 font-bold uppercase tracking-wider">Scanned Selections</h4>
-                    {scannedTransactionData.items?.map((item, idx) => (
-                      <div key={idx} className="flex justify-between text-sm">
-                        <span className="text-slate-300 capitalize">{item.name}</span>
-                        <span className="font-semibold text-slate-100">₹{item.price}</span>
+              <div className="grid gap-8 lg:grid-cols-5 items-start">
+                {/* Terminal Controls Column */}
+                <div className="lg:col-span-2 space-y-6">
+                  {/* Scanner Camera Card */}
+                  <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 flex flex-col items-center relative overflow-hidden">
+                    <h3 className="font-bold text-slate-800 text-base self-start mb-4 flex items-center gap-2">
+                      <span className="text-blue-500 text-xl">📷</span> Live Scanner Camera
+                    </h3>
+                    {isScanning ? (
+                      <div className="w-full">
+                        <div id="qr-reader" className="overflow-hidden rounded-xl border-2 border-dashed border-slate-300 p-2 bg-slate-50"></div>
+                        <button 
+                          onClick={() => setIsScanning(false)}
+                          className="mt-4 w-full rounded-xl bg-rose-600 hover:bg-rose-700 py-2.5 font-bold text-white shadow transition text-sm flex items-center justify-center gap-2"
+                        >
+                          ⏹️ Stop Camera
+                        </button>
                       </div>
-                    ))}
-                    <div className="flex justify-between text-base font-bold border-t border-slate-800 pt-3 mt-2">
-                      <span>Total Invoice Amount</span>
-                      <span className="text-blue-400 text-lg">₹{scannedTransactionData.totalAmount}</span>
-                    </div>
+                    ) : (
+                      <div className="text-center py-6 flex flex-col items-center gap-3">
+                        <button 
+                          onClick={() => {
+                            setScannedTransactionData(null);
+                            setIsScanning(true);
+                          }}
+                          className="inline-flex items-center gap-2 rounded-xl bg-blue-600 hover:bg-blue-700 px-6 py-3 font-bold text-white shadow-md transition duration-150 text-base"
+                        >
+                          📷 Open Scanner Camera
+                        </button>
+                        <div className="relative w-full max-w-[220px]">
+                          <input 
+                            type="file" 
+                            accept="image/*" 
+                            onChange={handleFileUpload} 
+                            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                          />
+                          <button className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-slate-100 hover:bg-slate-200 px-5 py-2.5 font-bold text-slate-700 transition text-sm">
+                            📤 Upload QR Screenshot
+                          </button>
+                        </div>
+                        <p className="text-xs text-slate-400 mt-2 leading-relaxed max-w-[250px] mx-auto font-medium">
+                          Use real-time camera scanning or upload a saved screenshot of the student's invoice QR.
+                        </p>
+                      </div>
+                    )}
                   </div>
 
-                  <div className="flex gap-3 pt-2">
+                  {/* Fallback Paste Input Card */}
+                  <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-3">
+                    <h3 className="font-bold text-slate-800 text-sm flex items-center gap-2">
+                      <span className="text-amber-500">⚡</span> Offline / Clipboard Fallback
+                    </h3>
+                    <p className="text-xs text-slate-500 leading-relaxed">
+                      If camera access is blocked or unavailable on this device, paste the raw JSON invoice string generated by the student below:
+                    </p>
+                    <textarea 
+                      rows={3}
+                      value={scanPayloadInput}
+                      onChange={(e) => setScanPayloadInput(e.target.value)}
+                      className="w-full rounded-xl border border-slate-200 p-3 text-xs font-mono focus:ring-blue-500 focus:border-blue-500 bg-slate-50"
+                      placeholder='{"type":"mess-billing", ...}'
+                    />
                     <button 
-                      onClick={handleConfirmTransaction}
-                      className="flex-1 rounded-lg bg-green-600 hover:bg-green-700 py-3 text-center font-bold text-sm text-white shadow-md transition"
+                      onClick={() => {
+                        try {
+                          const data = JSON.parse(scanPayloadInput);
+                          if (data.type === "mess-billing") {
+                            setScannedTransactionData(data);
+                            setError("");
+                          } else {
+                            setError("Invalid QR payload category. Must be mess-billing.");
+                          }
+                        } catch (err) {
+                          setError("Failed to parse JSON structure. Make sure the text is copied exactly.");
+                        }
+                      }}
+                      className="w-full rounded-xl bg-slate-800 hover:bg-slate-700 py-2.5 text-xs text-white transition font-semibold"
                     >
-                      Confirm & Add to Bill
-                    </button>
-                    <button 
-                      onClick={() => setScannedTransactionData(null)}
-                      className="rounded-lg bg-slate-800 hover:bg-slate-700 px-5 py-3 text-center font-bold text-sm text-slate-400 transition"
-                    >
-                      Reject Scan
+                      Verify Payload String
                     </button>
                   </div>
                 </div>
-              )}
 
-              {/* Paste fallback dashboard */}
-              <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 space-y-3">
-                <h3 className="font-bold text-slate-800 text-sm">Offline Testing / Paste Fallback</h3>
-                <p className="text-xs text-slate-500">If camera permissions are blocked, paste the JSON payload string here from the student QR canvas to simulate a scan.</p>
-                <textarea 
-                  rows={3}
-                  value={scanPayloadInput}
-                  onChange={(e) => setScanPayloadInput(e.target.value)}
-                  className="w-full rounded-lg border border-slate-300 p-2 text-xs font-mono focus:ring-blue-500 focus:border-blue-500 bg-slate-50"
-                  placeholder='{"type":"mess-billing", ...}'
-                />
-                <button 
-                  onClick={() => {
-                    try {
-                      const data = JSON.parse(scanPayloadInput);
-                      if (data.type === "mess-billing") {
-                        setScannedTransactionData(data);
-                        setError("");
-                      } else {
-                        setError("Invalid QR payload type.");
-                      }
-                    } catch (err) {
-                      setError("Failed to parse JSON structure. Make sure you pasted the exact text.");
-                    }
-                  }}
-                  className="rounded-lg bg-slate-800 hover:bg-slate-700 px-4 py-2 text-xs text-white transition font-semibold"
-                >
-                  Verify JSON Payload
-                </button>
+                {/* Scanned Invoice & Bills History Column */}
+                <div className="lg:col-span-3 space-y-6">
+                  {/* Verified Invoice Details Card */}
+                  {scannedTransactionData ? (
+                    <div className="bg-slate-900 text-white rounded-2xl shadow-xl p-6 space-y-4 animate-fadeIn border border-slate-800 relative overflow-hidden">
+                      <div className="absolute right-0 top-0 -mr-8 -mt-8 h-32 w-32 rounded-full bg-emerald-500/10 blur-2xl"></div>
+                      <div className="border-b border-slate-800 pb-3 flex justify-between items-center">
+                        <div>
+                          <span className="bg-emerald-500/20 text-emerald-400 border border-emerald-500/20 px-2.5 py-0.5 rounded-full text-[10px] uppercase font-bold tracking-wider">
+                            Verified Invoice
+                          </span>
+                          <h3 className="font-bold text-lg mt-1 text-slate-100">Student: {scannedTransactionData.username}</h3>
+                        </div>
+                        <span className="text-xs font-semibold text-slate-400 font-mono">Date: {scannedTransactionData.date}</span>
+                      </div>
+
+                      <div className="space-y-2">
+                        <h4 className="text-xs text-slate-400 font-bold uppercase tracking-wider">Purchased Items</h4>
+                        <div className="divide-y divide-slate-800 max-h-48 overflow-y-auto pr-1">
+                          {scannedTransactionData.items?.map((item, idx) => (
+                            <div key={idx} className="flex justify-between text-sm py-2">
+                              <span className="text-slate-300 capitalize">{item.name}</span>
+                              <span className="font-semibold text-slate-100">₹{item.price}</span>
+                            </div>
+                          ))}
+                        </div>
+                        <div className="flex justify-between text-base font-bold border-t border-slate-800 pt-3 mt-2">
+                          <span className="text-slate-400">Total Bill Amount</span>
+                          <span className="text-indigo-400 text-xl font-extrabold">₹{scannedTransactionData.totalAmount}</span>
+                        </div>
+                      </div>
+
+                      <div className="flex gap-3 pt-2">
+                        <button 
+                          onClick={handleConfirmTransaction}
+                          className="flex-1 rounded-xl bg-emerald-600 hover:bg-emerald-700 py-3 text-center font-bold text-sm text-white shadow-md transition duration-150 flex items-center justify-center gap-1.5"
+                        >
+                          ✅ Confirm & Charge Student
+                        </button>
+                        <button 
+                          onClick={() => setScannedTransactionData(null)}
+                          className="rounded-xl bg-slate-800 hover:bg-slate-700 px-5 py-3 text-center font-bold text-sm text-slate-400 transition"
+                        >
+                          Reject
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="bg-slate-50 border border-dashed border-slate-300 rounded-2xl p-8 text-center flex flex-col items-center justify-center min-h-[220px]">
+                      <span className="text-4xl">🧾</span>
+                      <h4 className="font-bold text-slate-700 text-sm mt-3">Invoice Details Pending</h4>
+                      <p className="text-xs text-slate-400 max-w-[280px] mt-1.5 leading-relaxed">
+                        Open the scanner above or paste a student payload to view detailed invoice items here for approval.
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Gorgeous Processed Billings Audit Log Card */}
+                  <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+                    <div className="flex items-center justify-between mb-4 border-b border-slate-100 pb-3">
+                      <div>
+                        <h3 className="font-bold text-slate-800 text-base">Receipts Processed By You</h3>
+                        <p className="text-xs text-slate-400 mt-0.5">Dual-profile billing history for admin profile verification.</p>
+                      </div>
+                      <span className="bg-blue-50 text-blue-700 px-2.5 py-0.5 rounded-full text-xs font-bold font-mono">
+                        {adminTransactions.length} Scans
+                      </span>
+                    </div>
+
+                    {adminTransactions.length === 0 ? (
+                      <div className="text-center py-8">
+                        <span className="text-3xl">📭</span>
+                        <p className="text-xs text-slate-400 mt-2 font-medium">You haven't scanned or billed any student invoices today.</p>
+                      </div>
+                    ) : (
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="text-slate-500 font-semibold text-xs border-b border-slate-100 uppercase tracking-wider">
+                              <th className="py-2.5 text-left font-bold">Student</th>
+                              <th className="py-2.5 text-left font-bold">Purchased Items</th>
+                              <th className="py-2.5 text-right font-bold">Amount</th>
+                              <th className="py-2.5 text-right font-bold">Date</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-50 text-slate-700 font-medium">
+                            {adminTransactions.map(trans => (
+                              <tr key={trans._id} className="hover:bg-slate-50/50 transition">
+                                <td className="py-3 text-slate-900 font-semibold">
+                                  {trans.student?.username || 'Student'}
+                                  <p className="text-[10px] text-slate-400 font-normal font-mono">{trans.student?.email}</p>
+                                </td>
+                                <td className="py-3 text-xs text-slate-500 max-w-[150px] truncate capitalize">
+                                  {trans.items.map(i => i.name).join(', ')}
+                                </td>
+                                <td className="py-3 text-right font-bold text-indigo-600">₹{trans.totalAmount}</td>
+                                <td className="py-3 text-right text-[10px] text-slate-400 font-mono">{trans.date}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
             </div>
           )}
@@ -1416,6 +1568,7 @@ function Dashboard() {
           </div>
         </div>
       )}
+      <div id="qr-reader-temp" className="hidden"></div>
     </div>
   );
 }

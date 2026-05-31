@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api',
+  baseURL: import.meta.env.VITE_API_BASE_URL || '/api',
 });
 
 const authConfig = (token) => ({
@@ -52,6 +52,7 @@ export const paymentAPI = {
   markPaid: (token, studentId) => api.post('/payments/mark-paid', { studentId }, authConfig(token)).then((r) => r.data),
   processScan: (token, payload) => api.post('/payments/scan-transaction', payload, authConfig(token)).then((r) => r.data),
   getTransactions: (token) => api.get('/payments/transactions/me', authConfig(token)).then((r) => r.data),
+  getAdminTransactions: (token) => api.get('/payments/transactions/admin', authConfig(token)).then((r) => r.data),
 };
 
 export const feedbackAPI = {

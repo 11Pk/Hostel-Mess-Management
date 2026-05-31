@@ -71,7 +71,20 @@ const getStudentTransactions = async (req, res, next) => {
   }
 };
 
+const getAdminTransactions = async (req, res, next) => {
+  try {
+    const adminId = req.user.id;
+    const transactions = await Transaction.find({ scannedBy: adminId })
+      .populate('student', 'username email')
+      .sort({ createdAt: -1 });
+    res.json({ success: true, transactions });
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   processScan,
   getStudentTransactions,
+  getAdminTransactions,
 };
